@@ -11,5 +11,14 @@ I am passionate about understanding the world through media, film, and storytell
 - Python (data processing and bias scoring)
 - OpenAI / LLMs (AI-based analysis)
 
+## Folder Structure
+- src/app: Next.js pages & routes
+- src/components: Reusable React components
+- src/lib: Service/API code & constants
+- src/utils: Pure helper functions
+- src/types: TypeScript type definitions
+- src/styles: CSS/Tailwind files
+- python/: Python analytics scripts
+
 ## Status
 In active development (Phase 1: project setup and architecture)
