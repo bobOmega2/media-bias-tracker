@@ -18,3 +18,39 @@
 - Supabase for database and authentication
 - Python for AI bias scoring
 - TailwindCSS for styling and layout
+
+## Supabase Integration
+
+### Client Architecture
+- **Two separate Supabase clients**: `server.ts` for Server Components, `client.ts` for Client Components
+- Reasoning: Server and browser handle cookies differently; `@supabase/ssr` abstracts this complexity
+- Both clients use the **Publishable Key** since they may run in the browser
+
+### API Keys Strategy
+- **Publishable Key** (`sb_publishable_...`) used in the app for all user-facing features
+- **Secret Key** (`sb_secret_...`) reserved for:
+  - Admin scripts
+  - Backend-only operations
+  - Data migrations
+- Reasoning: Publishable Key + RLS provides security; Secret Key bypasses RLS and should never be exposed
+
+### Row Level Security (RLS) Policies
+- All tables have RLS **enabled** (secure by default)
+- **SELECT policies only** - anyone can read data
+- **No INSERT/UPDATE/DELETE policies** - writing is blocked via API
+- Reasoning:
+  - This is a portfolio project; users should view, not modify data
+  - Data entry happens through Dashboard or admin scripts
+  - Simpler security model with less attack surface
+
+### Environment Variables
+- `NEXT_PUBLIC_SUPABASE_URL` → Project URL (safe to expose)
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` → Publishable Key (safe to expose)
+- Future: `SUPABASE_SECRET_KEY` → Secret Key (server-only, never expose)
+
+## Table Changes
+
+### Renamed `articles` to `media`
+- Reasoning: Supports multiple media types (articles now, films later)
+- `media_type` column distinguishes between types
+- Single table avoids complex joins and scales better

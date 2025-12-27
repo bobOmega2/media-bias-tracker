@@ -166,3 +166,83 @@ Today I focused mainly on **understanding and designing the backend + database l
 * Connect Supabase to Next.js using a client in `lib/supabaseClient.ts`
 - Plan the database tables: `articles`, `ai_scores`, `user_ratings`, and maybe `users`
 - Start building backend API routes using these tables so the frontend can get and send data
+
+
+---
+
+## 2025-12-27
+
+### Supabase + Next.js Integration
+
+Today I focused on **connecting Supabase to my Next.js app** and understanding how authentication, API keys, and Row Level Security work together.
+
+#### Project Structure Cleanup
+
+* Discovered I had **two Next.js projects nested** (one inside `src/`, one outside)
+* Cleaned up by:
+  * Moving `.env.local` into `src/` where `package.json` lives
+  * Deleting duplicate `node_modules/` and `.next/` from outer folder
+  * Now working entirely from the `src/` folder
+
+#### Supabase Client Setup
+
+* Created two Supabase client files:
+  * `utils/supabase/server.ts` → For Server Components (runs on server)
+  * `utils/supabase/client.ts` → For Client Components (runs in browser)
+* Learned why two clients are needed:
+  * Server and browser handle cookies differently
+  * `@supabase/ssr` package handles this complexity
+
+#### Next.js 15 Async Cookies Issue
+
+* Encountered errors because Next.js 15 changed how `cookies()` works
+* Old way: `cookies()` returned cookies directly
+* New way: `cookies()` returns a Promise, must use `await`
+* Fixed `server.ts` to use `async function createClient()` with `await cookies()`
+
+#### API Keys (New Supabase System)
+
+* Learned Supabase introduced new API keys in 2025:
+  * **Publishable Key** (`sb_publishable_...`) → Safe to expose in browser
+  * **Secret Key** (`sb_secret_...`) → Never expose, for backend only
+* Understood the difference between:
+  * **API Keys** = How you connect (like a password)
+  * **Postgres Roles** = Who you are inside the database (`anon`, `authenticated`)
+
+#### Row Level Security (RLS) Policies
+
+* RLS was enabled but had no policies → returned empty data
+* Learned that:
+  * RLS enabled + No policy = No access (secure by default)
+  * Must explicitly allow access with policies
+* Created SELECT policies for all three tables:
+  * `media` → Anyone can read
+  * `bias_categories` → Anyone can read
+  * `ai_scores` → Anyone can read
+* No INSERT/UPDATE/DELETE policies needed because:
+  * No policy = Blocked automatically
+  * I'll add data through Dashboard or scripts with Secret Key
+
+#### Environment Variables
+
+* Fixed mismatch between `.env.local` variable names and code
+* `.env.local` had: `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY`
+* Code expected: `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+* Aligned them to use consistent naming
+
+#### Key Learnings
+
+* `NEXT_PUBLIC_` prefix = Variable is sent to browser (visible to users)
+* Variables without prefix = Stay on server (hidden)
+* Publishable Key is safe to expose because RLS protects the data
+* Secret Key bypasses RLS, so never expose it
+
+---
+
+### TODO / Next Steps
+
+* Add test data to tables through Supabase Dashboard
+* Verify data displays correctly on the frontend
+* Build out the homepage to display media items with bias scores
+* Create an admin workflow for adding new articles (using Secret Key)
+* Connect the Python AI scoring script to generate bias scores
