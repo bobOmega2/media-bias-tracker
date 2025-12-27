@@ -241,7 +241,7 @@ Today I focused on **connecting Supabase to my Next.js app** and understanding h
 
 ### TODO / Next Steps
 
-* Add test data to tables through Supabase Dashboard
+* Connect to external APIs to get articles and films data.
 * Verify data displays correctly on the frontend
 * Build out the homepage to display media items with bias scores
 * Create an admin workflow for adding new articles (using Secret Key)
