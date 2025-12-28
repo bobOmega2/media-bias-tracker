@@ -239,10 +239,45 @@ Today I focused on **connecting Supabase to my Next.js app** and understanding h
 
 ---
 
-### TODO / Next Steps
+## December 28, 2025
 
-* Connect to external APIs to get articles and films data.
-* Verify data displays correctly on the frontend
-* Build out the homepage to display media items with bias scores
-* Create an admin workflow for adding new articles (using Secret Key)
-* Connect the Python AI scoring script to generate bias scores
+### What I Built
+- Created /api/ai_analyze/route.ts
+- POST function that receives article URL, title, source
+- fetchArticleContent() function to get webpage text
+- Error handling for missing fields and failed fetches
+
+### Design Decisions
+1. Backend-first development
+   - Build API before frontend
+   - Easier to test and debug in isolation
+   - Frontend depends on knowing what API returns
+
+2. Gemini 2.5 Pro over Flash
+   - Pro: Better accuracy for bias analysis (100/day free)
+   - Flash: Faster but less accurate (250/day free)
+   - Can switch later with one line change
+
+3. @google/genai over @google/generative-ai
+   - Old package deprecated (ends Nov 2025)
+   - New package is official, maintained
+
+4. Helper functions outside POST
+   - Reusable and cleaner code
+   - fetchArticleContent() can be used elsewhere
+
+### Concepts Learned
+- API routes: endpoints that handle backend logic
+- POST/GET/PUT/DELETE: types of requests
+- NextRequest: incoming envelope (user's data)
+- NextResponse: outgoing envelope (your reply)
+- fetch().text() needs await (body streams in chunks)
+- Error handling: always check for null after async calls
+
+### TODO Next Session
+- [ ] Write analyzeWithGemini() function
+- [ ] Craft the bias analysis prompt
+- [ ] Parse Gemini's JSON response
+- [ ] Save scores to Supabase
+- [ ] Test the API endpoint
+- [ ] Build frontend form to submit articles

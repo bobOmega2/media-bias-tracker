@@ -54,3 +54,23 @@
 - Reasoning: Supports multiple media types (articles now, films later)
 - `media_type` column distinguishes between types
 - Single table avoids complex joins and scales better
+
+## AI Integration
+
+### Model Selection
+- **Gemini 2.5 Pro** over Flash or Flash-Lite
+- Reasoning: Best accuracy for nuanced bias detection; 100 requests/day sufficient for portfolio project
+- Trade-off: Fewer daily requests than Flash (250/day) but higher quality analysis
+
+### SDK Choice
+- Using `@google/genai` (new unified SDK)
+- Reasoning: `@google/generative-ai` deprecated November 2025; new SDK is actively maintained with latest features
+
+### API Key Strategy
+- Key stored in `GEMINI_API_KEY` environment variable
+- SDK reads key automatically from environment
+- Key never exposed to frontend (server-side only)
+
+### Development Approach
+- **Backend-first**: Build API routes before frontend
+- Reasoning: Core AI feature must work first; frontend depends on API response structure; easier to debug in isolation
