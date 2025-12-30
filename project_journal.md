@@ -274,10 +274,54 @@ Today I focused on **connecting Supabase to my Next.js app** and understanding h
 - fetch().text() needs await (body streams in chunks)
 - Error handling: always check for null after async calls
 
-### TODO Next Session
-- [ ] Write analyzeWithGemini() function
-- [ ] Craft the bias analysis prompt
-- [ ] Parse Gemini's JSON response
-- [ ] Save scores to Supabase
-- [ ] Test the API endpoint
-- [ ] Build frontend form to submit articles
+
+### December 30, 2025
+What I Built
+
+    Completed full AI analysis pipeline in /api/ai_analyze/route.ts
+    analyzeWithGemini() function that sends article content to Gemini and returns bias scores
+    Database integration: saves articles to media table and scores to ai_scores table
+    Tested complete flow successfully via browser console
+
+Problems Encountered & Solved
+
+    429 Rate Limit Error
+        Gemini 2.5 Pro had 0 quota for my account
+        Solution: Switched to gemini-2.5-flash
+    JSON Parse Error (Markdown Wrapping)
+        Gemini returned ```json {...} ``` instead of raw JSON
+        Solution: Strip markdown before parsing + ask for "no markdown" in prompt
+        Lesson: Don't trust external APIs 100% - add defensive code
+    RLS Blocking INSERT
+        Had SELECT policies but no INSERT policies
+        Solution: Added INSERT/UPDATE policies for all tables
+    Missing model_name Column
+        ai_scores table required model_name but we weren't providing it
+        Solution: Added model_name: 'gemini-2.5-flash' to insert
+        Lesson: Add console.error logs to see actual database errors
+    [object Object] in Console
+        Used + instead of , in console.log
+        Solution: console.log("text:", data) not console.log("text" + data)
+
+Design Decisions
+
+    Open INSERT Policies (For Now): Get it working first, restrict when auth is added
+    Prompt AND Code for JSON: Tell Gemini "no markdown" but also strip it in code as backup
+    Track Model Name: Useful for comparing models or upgrading later
+
+Concepts Learned
+
+    await only works inside async functions (can't pause file loading)
+    { data: categories } renames variables in destructuring
+    .map(c => c.name) extracts one field from array of objects
+    .find(c => c.name === score.category) matches by value to get full object
+
+TODO Next Session
+
+Maybe add a field in ai_scores table called 'title' which contains the article's title so its easy to spot when debugging
+Build frontend form to submit articles
+Display analyzed articles on homepage with scores
+Remove debug console.logs
+Add API route for api/media which will update the media table
+Pull articles from external API
+Add user authentication (Phase 2)
