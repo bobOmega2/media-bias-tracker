@@ -319,9 +319,6 @@ Concepts Learned
 TODO Next Session
 
 Maybe add a field in ai_scores table called 'title' which contains the article's title so its easy to spot when debugging
-Build frontend form to submit articles
-Display analyzed articles on homepage with scores
-Remove debug console.logs
 Add API route for api/media which will update the media table
 Pull articles from external API
 Add user authentication (Phase 2)
