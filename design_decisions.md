@@ -74,3 +74,41 @@
 ### Development Approach
 - **Backend-first**: Build API routes before frontend
 - Reasoning: Core AI feature must work first; frontend depends on API response structure; easier to debug in isolation
+
+## Dark Mode Implementation
+### Theme Strategy
+- **Class-based dark mode** using Tailwind v4's `@custom-variant`
+- Theme state managed via React Context (`app/theme.tsx`)
+- User preference saved to `localStorage` for persistence
+- Dark mode set as default
+
+### Tailwind v4 Configuration
+- Uses `@custom-variant dark (&:where(.dark, .dark *))` in globals.css
+- No `tailwind.config.ts` needed for dark mode (different from v3)
+
+### Transitions
+- All color changes use `transition-colors duration-300`
+- Provides smooth visual feedback when toggling themes
+
+## External API Integration
+### GNews API
+- **Free tier**: 100 requests/day, 10 articles per request
+- Fetches from 7 categories: world, business, technology, entertainment, sports, science, health
+- **Rate limiting solution**: 1-second delay between category requests
+- Duplicate removal using `Map` by article ID
+
+### Categories Storage
+- `news_categories` table in Supabase stores category names and IDs
+- Enables future data analysis (bias by category, user reading patterns)
+- API fetches category list from Supabase, not hardcoded
+
+## Frontend Architecture
+### Articles Page
+- Netflix-style horizontal carousels grouped by category
+- Server Component fetches directly from GNews (not via API route)
+- Reasoning: Server Components can't fetch from `localhost`
+
+### UI Style
+- Editorial/newspaper style over dark gradients
+- Reasoning: Avoids "AI-generated" look that recruiters notice
+- Light stone colors, serif fonts, clean dividers
