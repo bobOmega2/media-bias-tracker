@@ -322,3 +322,82 @@ Maybe add a field in ai_scores table called 'title' which contains the article's
 Add API route for api/media which will update the media table
 Pull articles from external API
 Add user authentication (Phase 2)
+
+## December 31, 2025
+
+### What I Built
+
+**Frontend - UI Redesign**
+- Redesigned homepage from dark AI-looking theme to clean editorial style
+- Implemented dark/light mode toggle with smooth transitions
+- Created theme context in `app/theme.tsx`
+- Updated Navbar with theme toggle (sun/moon icons)
+- Configured Tailwind v4 dark mode with `@custom-variant dark`
+
+**External API Integration - GNews**
+- Built `/api/articles/route.ts` to fetch from GNews API
+- Fetches from 7 categories: world, business, technology, entertainment, sports, science, health
+- Added 1-second delay between requests to avoid rate limiting
+- Implemented duplicate removal using Map (by article ID)
+- Created `news_categories` table in Supabase
+- Returns ~70 unique articles with category_id
+
+**Articles Discovery Page**
+- Built `/articles/page.tsx` with Netflix-style horizontal carousels
+- Groups articles by category
+- Each card shows: image, source, title, Read/Analyze links
+- Analyze link pre-fills the analyze form
+
+### Problems Solved
+
+| Problem | Solution |
+|---------|----------|
+| Dark mode not working | Added `@custom-variant dark` to globals.css (Tailwind v4) |
+| GNews returning 0 articles | Added 1-second delay between category fetches |
+| `localhost` fetch error | Called GNews directly in page instead of via API route |
+| Duplicate articles (same ID) | Used Map to deduplicate by article ID |
+
+### Design Decisions
+
+- **Editorial Style**: Cleaner, less "AI-generated" looking for recruiters
+- **Dark Mode Default**: Persists in localStorage
+- **Categories in Supabase**: Enables future data analysis
+- **Carousel Layout**: Better UX for 70 articles than a long list
+- **1-Second Delay**: Prevents GNews rate limiting
+
+### Concepts Learned
+
+- Tailwind v4 uses `@custom-variant` for dark mode
+- React Context for sharing theme state
+- Map for deduplication: `Map.set(id, item)` overwrites duplicates
+- Server Components can't fetch from `localhost`
+
+### Files Created/Modified
+
+- `app/theme.tsx` - dark/light mode context
+- `app/layout.tsx` - added ThemeProvider
+- `components/Navbar.tsx` - theme toggle
+- `styles/globals.css` - dark mode variant
+- `app/page.tsx` - editorial redesign + dark mode
+- `app/analyze/page.tsx` - matching theme
+- `app/api/articles/route.ts` - GNews fetching
+- `app/articles/page.tsx` - carousel display
+- Supabase: `news_categories` table
+
+---
+
+### TODO Next Session
+
+**High Priority**
+- [ ] Speed up articles page (slow due to 7-second GNews fetch)
+- [ ] Filter duplicate articles by URL (same article from different sources)
+- [ ] Pre-analyze articles daily (script to run AI on all 70)
+- [ ] Save GNews articles to Supabase `media` table
+- [ ] Add caching to prevent API quota drain
+
+**Phase 2**
+- [ ] User authentication
+- [ ] User dashboard
+- [ ] User stats and data analysis
+- [ ] Recommendation algorithm
+```
