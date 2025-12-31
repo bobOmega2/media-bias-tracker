@@ -21,4 +21,3 @@ I am passionate about understanding the world through media, film, and storytell
 - python/: Python analytics scripts
 
 ## Status
-In active development (Phase 1: project setup and architecture)
