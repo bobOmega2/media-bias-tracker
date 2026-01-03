@@ -21,8 +21,9 @@ async function main() {
     const testArticles = insertedArticles.slice(0, 1)
     console.log(`Analyzing ${testArticles.length} articles for testing...`)
 
-    // Map articles to required format
+    // Map articles to required format for analyzeArticlesBatch() function
     const articlesToAnalyze = testArticles.map(a => ({
+      mediaId: a.id,
       title: a.title,
       url: a.url,
       source: a.source

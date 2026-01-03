@@ -401,3 +401,125 @@ Add user authentication (Phase 2)
 - [ ] User stats and data analysis
 - [ ] Recommendation algorithm
 ```
+2026-01-03
+Background Scripts vs Next.js Request Context (Big Architecture Lesson)
+
+Today I worked on batch-processing articles: fetching ~70 articles from GNews, inserting them into Supabase, and running AI bias analysis on each article using Gemini models.
+
+This session led to an important real-world architecture realization about how scripts differ from Next.js request-based code.
+
+What I Built
+
+Created a standalone script: scripts/initArticles.ts
+
+Fetches articles from GNews
+
+Inserts them into the media table
+
+Runs AI analysis on each article via analyzeArticlesBatch()
+
+Limited analysis to a small subset (1 article) for safe testing
+
+Confirmed batch logic runs sequentially (not all 70 at once)
+
+Verified AI model fallback logic (tries models in order until one succeeds)
+
+Problem Encountered: Cookies Error
+
+While running the script with npx tsx, I hit this error:
+
+cookies() was called outside a request scope
+
+This was confusing at first because similar Supabase code worked previously inside API routes.
+
+Key Realization (Important Industry Concept)
+
+I learned that:
+
+Next.js API routes and Server Components run inside an HTTP request
+
+Cookies, headers, and sessions exist
+
+Scripts run in plain Node.js
+
+No request
+
+No cookies
+
+No browser context
+
+Because of this:
+
+Supabase clients that rely on cookies() cannot be used in scripts
+
+This is expected behavior, not a bug
+
+Design Decision: Separate Supabase Clients by Context
+
+I understood that real-world apps intentionally separate:
+
+Request-scoped clients
+
+Used in API routes / server components
+
+Use cookies + RLS
+
+Admin / system clients
+
+Used in scripts, cron jobs, and background tasks
+
+Use Supabase service role key
+
+Bypass RLS intentionally
+
+This is a standard industry pattern, not overengineering.
+
+AI Model Cycling Logic (Clarified)
+
+Models are tried in order per article
+
+If one model fails (rate limit, error, bad response), the next model is tried
+
+If a model succeeds:
+
+The loop exits immediately
+
+No other models are called for that article
+
+For the next article, the cycle starts again from the first model
+
+This ensures:
+
+Maximum usage of preferred models
+
+Graceful fallback without wasting quota
+
+Concepts Learned
+
+Scripts ≠ Next.js runtime
+
+Cookies only exist inside request lifecycles
+
+Background jobs always use admin credentials
+
+Sequential processing + delays prevent rate-limit issues
+
+continue inside loops skips to the next model cleanly
+
+Real apps separate user context from system context
+
+Overall Reflection
+
+This session felt like crossing from “framework-level usage” into real system design thinking.
+
+Understanding why scripts need different authentication than request-based code made the architecture feel much more intentional and professional. This is the same pattern used for cron jobs, ETL pipelines, and AI batch processing in production systems.
+
+Next Steps
+
+Create a Supabase admin client specifically for scripts
+
+Use it only in scripts/ and batch jobs
+
+Finish full 70-article batch run once setup is clean
+
+Later: automate this via cron / scheduled jobs

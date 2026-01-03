@@ -1,6 +1,10 @@
 /**
  * API Route: /api/ai_analyze
- * Analyzes article content for bias using Gemini 2.5 Flash
+ * Analyzes an EXISTING article for bias using Gemini 2.5 Flash
+ *
+ * IMPORTANT:
+ * - Media must already exist in the database
+ * - This route ONLY runs AI analysis and stores ai_scores
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -9,25 +13,32 @@ import { analyzeArticle } from '@/lib/ai'
 export async function POST(request: NextRequest) {
   try {
     const data = await request.json()
+
+    const mediaId = data.mediaId
     const url = data.url
     const title = data.title
     const source = data.source
 
-    if (!url || !title || !source) {
+    // Validate required fields
+    if (!mediaId || !url || !title || !source) {
       return NextResponse.json(
-        { error: 'Missing required fields: url, title, source' },
+        { error: 'Missing required fields: mediaId, url, title, source' },
         { status: 400 }
       )
     }
 
-    // Call the lib function that does everything, fetch, AI analyze, and save
-    const result = await analyzeArticle({ url, title, source })
+    // Running AI analysis ONLY (no media insertion)
+    const analysis = await analyzeArticle({
+      mediaId,
+      url,
+      title,
+      source
+    })
 
-    // returning values 
+    // Return AI result only
     return NextResponse.json({
       success: true,
-      media: result.media,
-      analysis: result.analysis
+      analysis
     })
 
   } catch (error) {
