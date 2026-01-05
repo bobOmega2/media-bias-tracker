@@ -523,3 +523,113 @@ Use it only in scripts/ and batch jobs
 Finish full 70-article batch run once setup is clean
 
 Later: automate this via cron / scheduled jobs
+
+
+### January 4, 2026
+What I Built
+
+Supabase + Next.js Article Pipeline
+    - Fixed initArticles.ts script to run properly on new computer
+    - Used Supabase Service Role key in admin.ts for scripts and cron jobs
+    - Kept request-scoped client separate for API routes
+    - Adjusted imports to work with ts-node and removed path alias issues
+
+AI Bias Analysis Integration
+    - Added category_id to articles inserted into Supabase
+    - Updated ArticlesPage to fetch articles from database instead of GNews API
+    - Grouped articles by category_name
+    - Display AI bias scores on frontend if they exist
+
+Deployment & Testing
+    - Verified script runs via npx ts-node -r tsconfig-paths/register
+    - Verified categories are correctly attached to articles
+    - Removed duplicates and ensured articles flow through the full pipeline
+    - Sample log data:
+        Found 6 categories: World, Technology, Sports, Science, Business, Entertainment
+        Fetching category: World
+        Response status for World: 200
+        Found 10 articles for World
+        ...
+        Total articles before deduplication: 72
+        Total articles after deduplication: 68
+        Successfully inserted 68 out of 68 articles
+
+Problems Encountered & Solved
+
+ts-node import errors with path aliases
+    - '@/*' imports didn’t resolve outside Next.js
+    - Solution: Use relative imports in scripts or tsconfig-paths with proper registration
+    - Lesson: Scripts outside of Next.js dev server need explicit path resolution
+
+Articles showed as uncategorized
+    - media table lacked category_id column
+    - Solution: Added category_id when inserting, fetched category names from news_categories
+    - Lesson: Always verify database schema matches code expectations
+
+Environment variable issues
+    - Scripts weren’t picking up SUPABASE_SECRET_KEY or API keys
+    - Solution: Added proper .env.local keys and loaded service/admin client
+    - Lesson: Backend scripts need separate credentials from frontend
+
+Sequential fetch performance
+    - Fetching each category with delay is slow (~1 second per category)
+    - Lesson: Could consider batching / parallel requests in the future
+
+Design Decisions
+
+Separate Admin & Request Clients
+    - Admin client with full privileges for scripts
+    - Request-scoped client for Next.js pages and API routes
+    - Lesson: This prevents accidental exposure of secrets
+
+Category Handling
+    - Added category_id to media table insert
+    - ArticlesPage maps category_id → category_name
+    - Lesson: Linking tables simplifies frontend grouping
+
+AI Score Display
+    - Fetch bias scores from ai_scores table if they exist
+    - Show on frontend only when available
+    - Lesson: Don’t assume every article has scores yet
+
+Concepts Learned
+
+Async/Await
+    - Await works only inside async functions
+    - Looping with await ensures ordered fetches, prevents rate limit errors
+
+Map & Deduplication
+    - Used Map() to remove duplicate articles by id
+    - Lesson: Simple and performant for small batches
+
+Database Relationships
+    - category_id foreign key to news_categories
+    - Lesson: Maintain schema consistency, consider ON DELETE / ON UPDATE actions
+
+Thought Process
+
+- Focused on end-to-end pipeline correctness: GNews API → Supabase → frontend
+- Avoided breaking changes while updating schema and script behavior
+- Learned how scripts differ from Next.js routes in module resolution and env loading
+- Reflected on potential improvements: threading AI requests, multi-API support
+- Verified that AI scores can now display dynamically if present
+- Ensured deduplication and category mapping are working correctly
+
+Next Steps
+
+Enable Gemini to Search the Web
+    - Adjust prompts and API calls so Gemini can optionally ground answers in live web search
+    - Include citations / grounding metadata when possible
+
+Daily Archival Script
+    - Move all current articles from media → archived_media table
+    - Run before fetching new articles daily
+    - Preserve historical data while keeping media table clean
+
+Expand AI Analysis Options
+    - Research multiple AI APIs (Claude, Perplexity, etc.)
+    - Compare accuracy, cost, and speed for bias scoring
+
+Improve AI Batch Performance
+    - Investigate threading / parallelism for batch AI analysis
+    - Measure impact on processing time vs rate limit handling

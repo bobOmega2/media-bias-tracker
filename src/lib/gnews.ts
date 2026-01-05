@@ -90,7 +90,8 @@ export async function insertGNewsArticles(): Promise<any[]> {
                     title: article.title,
                     url: article.url,
                     source: article.source,
-                    media_type: 'article'
+                    media_type: 'article',
+                    category_id: article.category_id
                 })
                 .select()
                 .single()

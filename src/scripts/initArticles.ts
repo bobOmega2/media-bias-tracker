@@ -21,7 +21,7 @@ async function main() {
     console.log(`Inserted ${insertedArticles.length} articles.`)
 
     // For testing: limit the number of articles to analyze
-    const testArticles = insertedArticles.slice(0, 1)
+    const testArticles = insertedArticles.slice(0, 35)
     console.log(`Analyzing ${testArticles.length} articles for testing...`)
 
     // Map articles to required format for analyzeArticlesBatch() function

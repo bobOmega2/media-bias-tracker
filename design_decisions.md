@@ -112,3 +112,63 @@
 - Editorial/newspaper style over dark gradients
 - Reasoning: Avoids "AI-generated" look that recruiters notice
 - Light stone colors, serif fonts, clean dividers
+
+AI Bias Scoring Considerations
+
+Score Storage: AI scores stored in ai_scores table with article_id, model_name, and category_scores.
+
+Optional Scores: Some articles may not have scores yet due to API limits or errors.
+
+Error Handling: Gemini API errors (404 / 429) are logged; partial analyses are acceptable.
+
+Batch Processing: Scripts like initArticles.ts batch articles to avoid hitting API rate limits.
+
+Future Performance: Consider threading or Promise.allSettled for concurrent analysis; track batch completion time as a performance metric.
+
+Data Archiving Strategy
+
+Archived Articles: Articles can be moved from media → archived_media table.
+
+Reasoning: Keeps active dataset lean; maintains history for auditing or retraining AI.
+
+Script: A simple migration script should:
+
+Select old articles (e.g., >90 days)
+
+Insert into archived_media
+
+Delete from media
+
+Frontend Improvements
+
+Bias Score Display: Articles on frontend show AI scores if they exist (political, economic, sensationalism) and a summary line.
+
+Optional Sorting: Could sort articles by score magnitude, category, or recency for experimentation.
+
+Accessibility: Add alt text, semantic HTML, and focus states for screen readers.
+
+Testing & Logging
+
+API Testing: Use Postman / Insomnia to test routes individually.
+
+Logging: Log Gemini API success/failure with timestamps and article ID.
+
+Debugging: Keep verbose logging in dev; limit in production.
+
+Security Considerations
+
+Secrets Management: GEMINI_API_KEY never exposed; SUPABASE_SECRET_KEY only in server scripts.
+
+RLS Enforcement: API routes respect RLS; even server scripts should consider WHERE clauses to avoid accidental exposure.
+
+Future Enhancements
+
+Multiple AI APIs: Add other bias models (e.g., OpenAI, Anthropic) and store results for model comparison.
+
+Web Scraping for Fresh Data: Optionally fetch full articles from web if GNews is insufficient.
+
+Threading / Parallelization: For large batches, improve processing speed; record time as a project metric.
+
+Analytics Dashboard: Track number of articles, analyzed vs pending, and average bias scores per category.
+
+User Preferences: Let users filter articles by bias score thresholds or category.
