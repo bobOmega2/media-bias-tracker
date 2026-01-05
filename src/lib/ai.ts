@@ -2,6 +2,8 @@
 import { GoogleGenAI } from '@google/genai'
 import { createClient } from '@/utils/supabase/server'
 import { extract } from '@extractus/article-extractor'
+import { SupabaseClient } from '@supabase/supabase-js' // for typescript 
+import { supabaseAdmin } from '@/utils/supabase/admin'
 
 // The AI client automatically uses GEMINI_API_KEY from .env
 const ai = new GoogleGenAI({})
@@ -36,14 +38,15 @@ export async function analyzeArticle({
   mediaId,
   url,
   title,
-  source
+  source,
+  supabaseClient
 }: {
   mediaId: string
   url: string
   title: string
   source: string
+  supabaseClient: SupabaseClient
 }): Promise<AIAnalysis> {
-  const supabase = await createClient()
 
   // Validate input
   if (!mediaId || !url || !title || !source) {
@@ -57,7 +60,7 @@ export async function analyzeArticle({
   }
 
   // Get bias categories from database
-  const { data: categories, error: categoriesError } = await supabase
+  const { data: categories, error: categoriesError } = await supabaseClient
     .from('bias_categories')
     .select('id, name')
 
@@ -82,7 +85,7 @@ export async function analyzeArticle({
       continue
     }
 
-    const { error: scoreError } = await supabase
+    const { error: scoreError } = await supabaseClient
       .from('ai_scores')
       .insert({
         media_id: mediaId,
@@ -185,13 +188,15 @@ export async function analyzeArticlesBatch(
 
   // looping through the array of articles, analyzing each
   // NOTE: analyzeArticle ONLY saves AI scores, media is already inserted
+  // This function will only be used by scripts/initArticles.ts
   for (const article of articles) {
     try {
       const analysis = await analyzeArticle({
         mediaId: article.mediaId,
         title: article.title,
         url: article.url,
-        source: article.source
+        source: article.source,
+        supabaseClient: supabaseAdmin
       })
 
       results.push(analysis)

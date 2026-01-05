@@ -6,8 +6,11 @@
  * Designed for initial setup or testing.
  *  */
 
-import { insertGNewsArticles } from '@/lib/gnews'
-import { analyzeArticlesBatch } from '@/lib/ai'
+//import { insertGNewsArticles } from '@/lib/gnews'
+//import { analyzeArticlesBatch } from '@/lib/ai'
+import { insertGNewsArticles } from '../lib/gnews.js'
+import { analyzeArticlesBatch } from '../lib/ai.js'
+
 
 async function main() {
   try {

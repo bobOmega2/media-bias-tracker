@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { analyzeArticle } from '@/lib/ai'
+import { createClient } from '@/utils/supabase/server'
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,6 +19,7 @@ export async function POST(request: NextRequest) {
     const url = data.url
     const title = data.title
     const source = data.source
+    const supabase = await createClient()
 
     // Validate required fields
     if (!mediaId || !url || !title || !source) {
@@ -32,7 +34,8 @@ export async function POST(request: NextRequest) {
       mediaId,
       url,
       title,
-      source
+      source,
+      supabaseClient: supabase
     })
 
     // Return AI result only

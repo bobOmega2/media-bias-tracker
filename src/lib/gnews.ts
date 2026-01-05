@@ -1,5 +1,5 @@
 // lib/gnews.ts
-import { createClient } from '@/utils/supabase/server'
+import { supabaseAdmin } from '@/utils/supabase/admin'
 
 // Helper to add delay between requests
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
@@ -10,7 +10,7 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
  */
 export async function fetchGNewsArticles(): Promise<any[]> {
   const apiKey = process.env.GNEWS_API_KEY
-  const supabase = await createClient()
+  const supabase = supabaseAdmin 
 
   // Get categories from Supabase
   const { data: categories, error } = await supabase
@@ -59,7 +59,7 @@ export async function fetchGNewsArticles(): Promise<any[]> {
 
 // function to insert articles from GNews into Supabase
 export async function insertGNewsArticles(): Promise<any[]> {
-    const supabase = await createClient()
+    const supabase = supabaseAdmin
     const articles = await fetchGNewsArticles() // returns ~70 articles
     const insertedArticles: any[] = []
     // looping through each article, and inserting it into supabase 
