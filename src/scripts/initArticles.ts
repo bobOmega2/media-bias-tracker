@@ -8,8 +8,8 @@
 
 //import { insertGNewsArticles } from '@/lib/gnews'
 //import { analyzeArticlesBatch } from '@/lib/ai'
-import { insertGNewsArticles } from '../lib/gnews.js'
-import { analyzeArticlesBatch } from '../lib/ai.js'
+import { insertGNewsArticles } from '../lib/gnews'
+import { analyzeArticlesBatch } from '../lib/ai'
 
 
 async function main() {
