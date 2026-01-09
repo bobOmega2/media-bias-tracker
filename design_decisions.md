@@ -172,3 +172,122 @@ Threading / Parallelization: For large batches, improve processing speed; record
 Analytics Dashboard: Track number of articles, analyzed vs pending, and average bias scores per category.
 
 User Preferences: Let users filter articles by bias score thresholds or category.
+
+---
+
+## Cookie-Based User History System
+
+### Architecture Decision: Cookies vs Database for Personal History
+
+**Problem**: Need to track which articles users have analyzed without requiring authentication.
+
+**Solution**: Hybrid approach combining cookies and database flags.
+
+**Design Rationale**:
+- **Cookies store article IDs only** (not full article data)
+  - Fast lookup without database queries
+  - No authentication required
+  - Privacy-first (data stays in browser)
+  - Max 50 articles tracked (prevent 4KB cookie limit)
+  - 90-day expiration with automatic cleanup
+
+- **Database stores `user_analyzed` boolean flag**
+  - Separates curated GNews articles from user submissions
+  - Enables quality control on public pages
+  - Clean separation: `user_analyzed = false` for articles page, `true` for dashboard
+  - Future-proof for authentication migration
+
+**Key Implementation Details**:
+- Cookie name: `analyzed_articles`
+- Value: JSON array of UUIDs: `["id1", "id2", "id3"]`
+- Security: SameSite=Lax, no HttpOnly (need JS access)
+- Utility functions in `utils/analyzedArticles.ts` centralize logic
+
+**Why This Works**:
+- Personal tracking without authentication complexity
+- Enables dashboard without user accounts
+- Clean separation of public vs user content
+- Easy migration path: move cookie IDs to user table when auth added
+
+### Database Schema: user_analyzed Field
+
+**Table**: `media`
+**Field**: `user_analyzed` BOOLEAN DEFAULT false
+
+**Purpose**: Distinguish between:
+- **Curated articles** (`user_analyzed = false`): GNews articles displayed publicly
+- **User submissions** (`user_analyzed = true`): Articles analyzed via /analyze page
+
+**Query Patterns**:
+```sql
+-- Public articles page
+SELECT * FROM media WHERE user_analyzed = false
+
+-- User dashboard
+SELECT * FROM media WHERE id IN (cookie_ids) AND user_analyzed = true
+```
+
+**Critical Fix**: GNews insertion script must explicitly set `user_analyzed = false` (not NULL).
+**Reason**: `.eq('user_analyzed', false)` excludes NULL values in Postgres.
+
+**Interview Talking Points**:
+- Defensive programming: NULL vs FALSE are different
+- SQL query behavior with nullable booleans
+- Importance of explicit defaults in insertion scripts
+
+### Data Flow: Analyze Page → Cookie → Dashboard
+
+1. **User submits article** (`/analyze` page)
+2. **API inserts to database** with `user_analyzed = true` flag
+3. **API returns new article ID** after successful analysis
+4. **Frontend saves ID to cookie** using `addAnalyzedArticle(id)`
+5. **User visits dashboard** → reads cookie IDs → fetches articles from Supabase
+6. **Dashboard displays** only user's analyzed articles
+
+**Key Advantage**: Article exists in database (sharable, permanent) but personal history tracked client-side (no auth needed).
+
+### Supabase Nested Queries
+
+**Pattern Used**: Foreign key relationships for efficient joins
+
+```typescript
+// Single query fetches article + scores + categories
+await supabase
+  .from('media')
+  .select(`
+    *,
+    ai_scores (
+      score,
+      explanation,
+      bias_categories (
+        name
+      )
+    )
+  `)
+```
+
+**Why This Works**:
+- `ai_scores.media_id` → `media.id` (foreign key)
+- `ai_scores.category_id` → `bias_categories.id` (foreign key)
+- Supabase automatically joins related tables
+- Returns nested JSON structure (no manual joins needed)
+
+**Interview Insight**: PostgreSQL foreign keys + PostgREST API = automatic nested queries. This is a key Supabase advantage over raw SQL.
+
+### TypeScript Type Safety for Nested Data
+
+**Challenge**: Supabase returns `bias_categories` as array (1:1 relationship still returns array)
+
+**Solution**:
+```typescript
+interface Article {
+  ai_scores: {
+    bias_categories: { name: string }[]  // Array, not object
+  }[]
+}
+
+// Access first element
+const category = score.bias_categories?.[0]
+```
+
+**Lesson**: Don't assume Supabase nested queries return objects for 1:1 relationships. Always use arrays and optional chaining.

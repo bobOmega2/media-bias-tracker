@@ -6,13 +6,11 @@ import { SupabaseClient } from '@supabase/supabase-js' // for typescript
 import { supabaseAdmin } from '@/utils/supabase/admin'
 
 // The AI client automatically uses GEMINI_API_KEY from .env
-const ai = new GoogleGenAI({})
+export const ai = new GoogleGenAI({})
 
-const MODELS = [
+export const MODELS = [
   'gemini-2.5-flash',
-  'gemini-3-flash',
   'gemini-2.5-flash-lite',
-  'gemma-3-12b'
 ]
 
 export function sleep(ms: number): Promise<void> {
@@ -122,7 +120,7 @@ async function fetchArticleContent(url: string): Promise<string | null> {
 }
 
 // function to analyze with Gemini Flash
-async function analyzeWithGemini(
+export async function analyzeWithGemini(
   content: string,
   biasCategories: string[]
 ): Promise<AIAnalysis | null> {

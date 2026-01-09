@@ -20,9 +20,19 @@ async function main() {
     const insertedArticles = await insertGNewsArticles()
     console.log(`Inserted ${insertedArticles.length} articles.`)
 
-    // For testing: limit the number of articles to analyze
-    const testArticles = insertedArticles.slice(0, 35)
-    console.log(`Analyzing ${testArticles.length} articles for testing...`)
+  // For testing: pick one article per category
+const articlesByCategory: Record<string, any> = {}
+for (const article of insertedArticles) {
+  if (!articlesByCategory[article.category_id]) {
+    articlesByCategory[article.category_id] = article
+  }
+}
+
+// Get an array of one article per category
+const testArticles = Object.values(articlesByCategory)
+
+console.log(`Analyzing ${testArticles.length} articles for testing...`)
+
 
     // Map articles to required format for analyzeArticlesBatch() function
     const articlesToAnalyze = testArticles.map(a => ({
@@ -36,7 +46,7 @@ async function main() {
     const analysisResults = await analyzeArticlesBatch(articlesToAnalyze)
 
     console.log('Batch analysis complete.')
-    console.log('Sample results:', analysisResults.slice(0, 2)) // show first 2 for sanity check
+    console.log('Sample results:', analysisResults.slice(0, 20)) 
   } catch (error) {
     console.error('Error in script:', error)
   }

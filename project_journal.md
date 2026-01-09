@@ -633,3 +633,331 @@ Expand AI Analysis Options
 Improve AI Batch Performance
     - Investigate threading / parallelism for batch AI analysis
     - Measure impact on processing time vs rate limit handling
+
+---
+
+## January 8, 2026
+
+### What I Built
+
+**Cookie-Based Article History System**
+- Implemented personal article tracking without authentication
+- Created `utils/analyzedArticles.ts` with cookie management utilities
+  - `getAnalyzedArticles()` - reads article IDs from browser cookies
+  - `addAnalyzedArticle(id)` - saves new article to cookie history
+  - Max 50 articles stored, 90-day expiration
+  - Automatic deduplication and oldest-article removal
+
+**User Dashboard Page**
+- Built `/dashboard/page.tsx` as Client Component
+- Fetches articles based on cookie IDs
+- Displays user's analyzed articles in grid layout
+- Shows AI bias scores with color-coded badges
+- Empty state for new users with "Analyze Your First Article" CTA
+- Preserves cookie order (most recent first)
+
+**API Route Updates**
+- Modified `/api/ai_analyze/route.ts` to handle user submissions
+- Made `mediaId` optional (generates new article if not provided)
+- Inserts articles with `user_analyzed = true` flag
+- Returns both media record and analysis results
+- Frontend saves article ID to cookies after successful analysis
+
+**Articles Page Filtering**
+- Updated `/articles/page.tsx` to exclude user-submitted articles
+- Added `.eq('user_analyzed', false)` filter to Supabase query
+- Only displays curated GNews articles publicly
+
+**Database Schema Fix**
+- Added `user_analyzed = false` to GNews insertion script (`lib/gnews.ts`)
+- Fixed bug where existing articles had NULL instead of FALSE
+- Resolved issue where articles weren't displaying (NULL ≠ FALSE in SQL)
+
+**Navigation Enhancement**
+- Added Dashboard link to navbar (`components/Navbar.tsx`)
+- Navigation now shows: Home → Discover → Analyze → Dashboard → Theme Toggle
+
+**UI Consistency**
+- Restyled analyze page to match stone/newspaper aesthetic
+- Consistent color scheme across all pages
+- Dark mode support with smooth transitions
+
+### Problems Encountered & Solutions
+
+#### 1. Articles Not Displaying on Articles Page
+
+**Problem**: After adding `user_analyzed` field, articles page showed 0 articles even though database had records.
+
+**Root Cause**:
+- GNews script didn't set `user_analyzed` field → defaulted to NULL
+- Articles page filtered for `user_analyzed = false`
+- In PostgreSQL, `NULL ≠ FALSE`, so query excluded all existing articles
+
+**Solution**:
+```typescript
+// Added to gnews.ts insertion
+.insert({
+  ...
+  user_analyzed: false  // Explicitly set for GNews articles
+})
+```
+
+**Fixed existing data**: Ran SQL UPDATE to change NULL → FALSE for existing articles
+
+**Key Learning**:
+- Always set explicit defaults in insertion code, don't rely on database defaults
+- NULL vs FALSE are semantically different in SQL
+- `.eq()` in Supabase excludes NULL values
+
+#### 2. TypeScript Type Mismatch for Nested Queries
+
+**Problem**: Dashboard crashed with "Cannot read property 'name' of undefined"
+
+**Root Cause**:
+- Expected `bias_categories` to be an object (1:1 relationship)
+- Supabase returns ALL nested relationships as arrays
+- Even 1:1 joins return `[{object}]` not `{object}`
+
+**Solution**:
+```typescript
+// Changed interface
+interface Article {
+  ai_scores: {
+    bias_categories: { name: string }[]  // Array, not object
+  }[]
+}
+
+// Access with optional chaining
+const category = score.bias_categories?.[0]
+```
+
+**Key Learning**:
+- Never assume Supabase nested structure based on relationship cardinality
+- Always use arrays + optional chaining for nested data
+- Test with real data, not just types
+
+#### 3. Dashboard Empty Despite Analyzed Articles
+
+**Problem**: Dashboard showed empty state even after analyzing articles.
+
+**Debugging Process**:
+1. Checked if cookie was being saved → ✓ Working
+2. Checked if cookie was being read → ✓ Working
+3. Checked Supabase query → Found double-filter issue
+
+**Root Cause**: Query used both `.in('id', cookieIds)` AND `.eq('user_analyzed', true)`, but cookies could contain IDs from before the field existed.
+
+**Solution**: Query already filters by cookie IDs (inherently user's articles), so `user_analyzed` check is redundant but kept for data integrity.
+
+**Key Learning**:
+- Debug systematically: cookie → read → query → data
+- Consider data migration when adding new fields
+- Multiple filters can interact unexpectedly
+
+### Design Decisions
+
+#### Cookie Storage Strategy
+
+**Why cookies over localStorage?**
+- Cookies auto-expire (90 days) → natural cleanup
+- Can be server-side if needed (future enhancement)
+- Standard for tracking without auth
+
+**Why 50 article limit?**
+- Cookie size limit: 4KB total
+- 50 UUIDs (36 chars each) ≈ 1.8KB → safe margin
+- Most users won't analyze 50+ articles
+- Keeps UI performant
+
+**Why JSON array over comma-separated?**
+- Type safety when parsing
+- Native JavaScript methods (filter, map)
+- Easier to add metadata later (timestamps, etc.)
+
+#### Separation of Public vs User Content
+
+**Why `user_analyzed` boolean instead of separate tables?**
+- Single source of truth
+- No data duplication
+- Simpler joins (all articles in one table)
+- Easy to query: "show me all public articles"
+
+**Trade-offs considered**:
+- **Separate tables** → harder to maintain, complex migrations
+- **Status enum** → more states than needed (overkill)
+- **Boolean flag** → simplest, most flexible ✓
+
+#### Dashboard as Client Component
+
+**Why not Server Component?**
+- Needs to read browser cookies (`document.cookie`)
+- Dynamic per-user (can't pre-render)
+- Requires `useState` for loading states
+
+**Architecture**:
+```
+Dashboard (Client)
+  → reads cookies (browser)
+  → calls Supabase (server)
+  → renders articles (browser)
+```
+
+### Supabase Nested Query Insights
+
+**Key Pattern Learned**:
+```typescript
+// This single query replaces 3 separate queries
+const { data } = await supabase
+  .from('media')
+  .select(`
+    *,
+    ai_scores (
+      score,
+      explanation,
+      bias_categories (name)
+    )
+  `)
+```
+
+**How it works**:
+1. Supabase uses PostgREST API
+2. Foreign keys define relationships
+3. Nested `select()` follows FK chains
+4. Returns JSON with nested objects/arrays
+
+**Performance benefit**:
+- 1 network request instead of 3
+- Database handles joins efficiently
+- Reduces data transfer (only selected fields)
+
+**Interview talking point**: "This is why I chose Supabase - automatic nested queries via FK relationships reduce N+1 query problems and improve performance without manual SQL joins."
+
+### Thought Process & Architecture Reasoning
+
+**Problem-Solving Approach**:
+1. **Define requirements** → Personal history without auth
+2. **Research patterns** → Cookies vs localStorage vs database
+3. **Design hybrid solution** → Cookies for IDs + database for content
+4. **Plan data flow** → Analyze → Cookie → Dashboard
+5. **Implement incrementally** → Cookie utils → API → Dashboard → Filters
+6. **Debug systematically** → Cookie → Query → Data → UI
+
+**Why this architecture scales**:
+- **Add authentication later**: Move cookie IDs to `user_articles` table
+- **Add sharing**: Articles exist in DB with stable UUIDs
+- **Add analytics**: Track which articles users analyze most
+- **Add recommendations**: Use history for personalization
+
+**Trade-offs made**:
+- **Cookie limit (50)** vs **Unlimited history** → Chose limit for performance
+- **Client-side tracking** vs **Database tracking** → Chose client for privacy + speed
+- **Separate tables** vs **Boolean flag** → Chose flag for simplicity
+
+### Technical Concepts Demonstrated
+
+**Frontend**:
+- React Client Components vs Server Components
+- Cookie management in browser
+- `useState`, `useEffect` for data fetching
+- Conditional rendering (loading, empty, error states)
+- TailwindCSS responsive grid layouts
+
+**Backend**:
+- Next.js API routes (POST handlers)
+- Supabase nested queries with FK relationships
+- Database schema design (boolean flags for categorization)
+- SQL NULL vs FALSE behavior
+
+**Full Stack**:
+- Cookie-based state management
+- Hybrid client/server data flow
+- Type safety with TypeScript interfaces
+- Error handling and defensive programming
+
+### Files Created/Modified
+
+| File | Action | Purpose |
+|------|--------|---------|
+| `utils/analyzedArticles.ts` | Created | Cookie management utilities |
+| `app/dashboard/page.tsx` | Created | User history dashboard |
+| `app/api/ai_analyze/route.ts` | Modified | Handle user submissions, set `user_analyzed` flag |
+| `app/analyze/page.tsx` | Modified | Save article ID to cookie after analysis |
+| `app/articles/page.tsx` | Modified | Filter to exclude `user_analyzed = true` |
+| `lib/gnews.ts` | Modified | Set `user_analyzed = false` for GNews articles |
+| `components/Navbar.tsx` | Modified | Added Dashboard navigation link |
+| `design_decisions.md` | Updated | Documented cookie architecture decisions |
+
+### Interview Preparation Notes
+
+**Key talking points**:
+
+1. **Cookie Architecture**:
+   - "I used a hybrid approach: cookies for tracking IDs, database for content"
+   - "This allows personal history without authentication complexity"
+   - "Easy migration path when adding user accounts later"
+
+2. **Database Design**:
+   - "Used a boolean flag instead of separate tables for simplicity"
+   - "Learned that NULL ≠ FALSE in SQL - had to explicitly set defaults"
+   - "This is defensive programming - don't rely on implicit behavior"
+
+3. **Supabase Nested Queries**:
+   - "Supabase uses foreign keys to enable automatic nested queries"
+   - "One request replaces 3 queries - solves N+1 query problems"
+   - "Returns arrays for ALL nested data - learned to handle this with TypeScript"
+
+4. **Debugging Process**:
+   - "Systematically traced data flow: cookie → read → query → display"
+   - "Used console.logs to verify each step before moving to next"
+   - "Found NULL vs FALSE bug by checking actual database values"
+
+5. **Scalability Thinking**:
+   - "Designed with future authentication in mind"
+   - "Cookie IDs can migrate to user table when auth added"
+   - "Articles already have stable UUIDs for sharing/linking"
+
+### What I Learned Today
+
+**Technical**:
+- Cookie management in JavaScript (creation, parsing, expiration)
+- PostgreSQL NULL vs FALSE behavior in equality checks
+- Supabase nested query structure (always returns arrays)
+- TypeScript optional chaining for nested data (`?.[0]`)
+
+**Architectural**:
+- Hybrid client/server state management patterns
+- When to use cookies vs database for tracking
+- Designing for future features (auth migration path)
+- Separation of concerns (public vs user content)
+
+**Debugging**:
+- Systematic data flow tracing
+- Checking actual database values vs expected values
+- TypeScript type mismatches with real data structures
+- SQL query behavior with NULL values
+
+**Best Practices**:
+- Always set explicit defaults in insertion code
+- Use optional chaining for nested data access
+- Test with real data, not just happy path
+- Document design decisions for future reference
+
+### Next Steps
+
+**High Priority**:
+- [ ] Test full user flow: Analyze → Dashboard → View Article
+- [ ] Verify cookie expiration behavior (90 days)
+- [ ] Test cookie limit (51st article should remove oldest)
+- [ ] Add loading skeleton for dashboard
+
+**Phase 2**:
+- [ ] Add "Clear History" button to dashboard
+- [ ] Add sort options (date, score, category)
+- [ ] Add export history as JSON/CSV
+- [ ] User authentication (migrate cookies to database)
+
+**Polish**:
+- [ ] Add animations to dashboard grid
+- [ ] Improve empty state design
+- [ ] Add tooltips explaining bias scores
+- [ ] Mobile responsiveness testing

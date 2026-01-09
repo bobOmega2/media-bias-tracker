@@ -31,13 +31,19 @@ export default function Navbar() {
           >
             Discover
           </Link>
-          <Link 
-            href="/analyze" 
+          <Link
+            href="/analyze"
             className="text-sm text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white transition-colors duration-300"
           >
             Analyze
           </Link>
-          
+          <Link
+            href="/dashboard"
+            className="text-sm text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white transition-colors duration-300"
+          >
+            Dashboard
+          </Link>
+
           <button
             onClick={toggleTheme}
             className="p-2 rounded-lg text-stone-600 dark:text-stone-400 hover:bg-stone-200 dark:hover:bg-stone-800 transition-colors duration-300"

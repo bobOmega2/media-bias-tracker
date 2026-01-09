@@ -1,10 +1,10 @@
 /**
  * API Route: /api/ai_analyze
- * Analyzes an EXISTING article for bias using Gemini 2.5 Flash
+ * Analyzes articles for bias using Gemini 2.5 Flash
  *
- * IMPORTANT:
- * - Media must already exist in the database
- * - This route ONLY runs AI analysis and stores ai_scores
+ * Handles both:
+ * - User-submitted articles (inserts to database first with user_analyzed=true)
+ * - Existing articles (analyzes directly with provided mediaId)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -21,26 +21,58 @@ export async function POST(request: NextRequest) {
     const source = data.source
     const supabase = await createClient()
 
-    // Validate required fields
-    if (!mediaId || !url || !title || !source) {
+    // Validate required fields (mediaId is now optional)
+    if (!url || !title || !source) {
       return NextResponse.json(
-        { error: 'Missing required fields: mediaId, url, title, source' },
+        { error: 'Missing required fields: url, title, source' },
         { status: 400 }
       )
     }
 
-    // Running AI analysis ONLY (no media insertion)
+    // Handle user-submitted articles (no mediaId provided)
+    let finalMediaId = mediaId
+    let mediaRecord = null
+
+    if (!mediaId) {
+      // Insert new article into database with user_analyzed flag
+      const { data: newMedia, error: insertError } = await supabase
+        .from('media')
+        .insert({
+          title,
+          url,
+          source,
+          media_type: 'article',
+          user_analyzed: true  // Mark as user submission
+        })
+        .select()
+        .single()
+
+      if (insertError || !newMedia) {
+        console.error('Error inserting article:', insertError)
+        return NextResponse.json(
+          { error: 'Failed to save article to database' },
+          { status: 500 }
+        )
+      }
+
+      finalMediaId = newMedia.id
+      mediaRecord = newMedia
+      console.log(`Inserted user article: ${title} (ID: ${finalMediaId})`)
+    }
+
+    // Run AI analysis on the article
     const analysis = await analyzeArticle({
-      mediaId,
+      mediaId: finalMediaId,
       url,
       title,
       source,
       supabaseClient: supabase
     })
 
-    // Return AI result only
+    // Return both media record and analysis
     return NextResponse.json({
       success: true,
+      media: mediaRecord || { id: finalMediaId, title, url, source },
       analysis
     })
 

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { addAnalyzedArticle } from '@/utils/analyzedArticles'
 
 // Type for the analysis results
 interface AnalysisResult {
@@ -55,6 +56,12 @@ export default function AnalyzePage() {
       }
 
       setResults(data)
+
+      // Save article ID to cookie for history tracking
+      if (data.media?.id) {
+        addAnalyzedArticle(data.media.id)
+      }
+
       setUrl('')
       setTitle('')
       setSource('')
@@ -74,23 +81,26 @@ export default function AnalyzePage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 py-12 px-4">
+    <main className="min-h-screen bg-stone-50 dark:bg-stone-950 transition-colors duration-300 py-12 px-4">
       <div className="max-w-2xl mx-auto">
-        
+
         {/* Back Link */}
-        <Link 
-          href="/" 
-          className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-8"
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 transition-colors mb-8"
         >
           ← Back to Home
         </Link>
 
         {/* Header */}
-        <div className="mb-10">
-          <h1 className="text-4xl font-bold text-white mb-3">
+        <div className="mb-10 border-b-2 border-stone-900 dark:border-stone-100 pb-6">
+          <p className="text-sm tracking-widest text-stone-500 dark:text-stone-400 uppercase mb-2">
+            AI-Powered Analysis
+          </p>
+          <h1 className="text-4xl font-serif font-bold text-stone-900 dark:text-stone-100 mb-3">
             Analyze Article
           </h1>
-          <p className="text-slate-400 text-lg">
+          <p className="text-stone-600 dark:text-stone-400 text-lg">
             Submit a news article to analyze its bias
           </p>
         </div>
@@ -98,7 +108,7 @@ export default function AnalyzePage() {
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-5 mb-10">
           <div>
-            <label htmlFor="url" className="block text-sm font-medium text-slate-300 mb-2">
+            <label htmlFor="url" className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-2">
               Article URL
             </label>
             <input
@@ -109,15 +119,15 @@ export default function AnalyzePage() {
               placeholder="https://www.bbc.com/news/article..."
               required
               disabled={loading}
-              className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl 
-                         text-white placeholder-slate-500
-                         focus:outline-none focus:border-blue-500
-                         disabled:opacity-50"
+              className="w-full px-4 py-3 bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg
+                         text-stone-900 dark:text-stone-100 placeholder-stone-400
+                         focus:outline-none focus:ring-2 focus:ring-stone-900 dark:focus:ring-stone-100
+                         disabled:opacity-50 transition-colors"
             />
           </div>
 
           <div>
-            <label htmlFor="title" className="block text-sm font-medium text-slate-300 mb-2">
+            <label htmlFor="title" className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-2">
               Article Title
             </label>
             <input
@@ -128,15 +138,15 @@ export default function AnalyzePage() {
               placeholder="Enter the article headline"
               required
               disabled={loading}
-              className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl 
-                         text-white placeholder-slate-500
-                         focus:outline-none focus:border-blue-500
-                         disabled:opacity-50"
+              className="w-full px-4 py-3 bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg
+                         text-stone-900 dark:text-stone-100 placeholder-stone-400
+                         focus:outline-none focus:ring-2 focus:ring-stone-900 dark:focus:ring-stone-100
+                         disabled:opacity-50 transition-colors"
             />
           </div>
 
           <div>
-            <label htmlFor="source" className="block text-sm font-medium text-slate-300 mb-2">
+            <label htmlFor="source" className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-2">
               Source
             </label>
             <input
@@ -147,18 +157,18 @@ export default function AnalyzePage() {
               placeholder="BBC, CNN, Fox News, etc."
               required
               disabled={loading}
-              className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl 
-                         text-white placeholder-slate-500
-                         focus:outline-none focus:border-blue-500
-                         disabled:opacity-50"
+              className="w-full px-4 py-3 bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg
+                         text-stone-900 dark:text-stone-100 placeholder-stone-400
+                         focus:outline-none focus:ring-2 focus:ring-stone-900 dark:focus:ring-stone-100
+                         disabled:opacity-50 transition-colors"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-4 bg-blue-600 hover:bg-blue-500 
-                       text-white font-medium rounded-xl
+            className="w-full py-4 bg-stone-900 dark:bg-stone-100 hover:bg-stone-700 dark:hover:bg-stone-300
+                       text-stone-100 dark:text-stone-900 font-semibold rounded-lg
                        disabled:opacity-50 disabled:cursor-not-allowed
                        transition-colors flex items-center justify-center gap-3"
           >
@@ -188,49 +198,49 @@ export default function AnalyzePage() {
 
         {/* Error Message */}
         {error && (
-          <div className="mb-8 p-4 bg-red-500/20 border border-red-500/30 rounded-xl">
-            <p className="text-red-400">{error}</p>
+          <div className="mb-8 p-4 bg-red-100 dark:bg-red-900/20 border border-red-300 dark:border-red-800 rounded-lg">
+            <p className="text-red-800 dark:text-red-200">{error}</p>
           </div>
         )}
 
         {/* Results */}
         {results && (
           <div className="space-y-5">
-            <div className="flex items-center gap-2 text-green-400 mb-4">
+            <div className="flex items-center gap-2 text-green-600 dark:text-green-400 mb-4">
               <span className="text-xl">✓</span>
               <span className="font-medium">Analysis Complete</span>
             </div>
 
             {/* Article Info */}
-            <div className="p-5 bg-slate-800 border border-slate-700 rounded-xl">
-              <h3 className="font-semibold text-white mb-1">{results.media.title}</h3>
-              <p className="text-sm text-slate-400">{results.media.source}</p>
+            <div className="p-5 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-lg">
+              <h3 className="font-serif font-semibold text-stone-900 dark:text-stone-100 mb-1">{results.media.title}</h3>
+              <p className="text-sm text-stone-600 dark:text-stone-400">{results.media.source}</p>
             </div>
 
             {/* Summary */}
-            <div className="p-5 bg-slate-800 border border-slate-700 rounded-xl">
-              <h3 className="text-sm font-medium text-slate-400 mb-2">Summary</h3>
-              <p className="text-white">{results.analysis.summary}</p>
+            <div className="p-5 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-lg">
+              <h3 className="text-sm font-medium text-stone-600 dark:text-stone-400 mb-2">Summary</h3>
+              <p className="text-stone-900 dark:text-stone-100">{results.analysis.summary}</p>
             </div>
 
             {/* Scores */}
             <div className="space-y-3">
-              <h3 className="text-sm font-medium text-slate-400">Bias Scores</h3>
-              
+              <h3 className="text-sm font-medium text-stone-600 dark:text-stone-400">Bias Scores</h3>
+
               {results.analysis.scores.map((score, index) => (
-                <div 
+                <div
                   key={index}
-                  className="p-5 bg-slate-800 border border-slate-700 rounded-xl"
+                  className="p-5 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-lg"
                 >
                   <div className="flex items-center justify-between mb-3">
-                    <span className={`${getScoreColor(score.score)} text-sm px-3 py-1 rounded-full`}>
+                    <span className={`${getScoreColor(score.score)} text-sm px-3 py-1 rounded-full font-semibold capitalize`}>
                       {score.category}
                     </span>
-                    <span className="text-2xl font-bold text-white">
+                    <span className="text-2xl font-bold text-stone-900 dark:text-stone-100">
                       {score.score > 0 ? '+' : ''}{score.score.toFixed(1)}
                     </span>
                   </div>
-                  <p className="text-sm text-slate-400">
+                  <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
                     {score.explanation}
                   </p>
                 </div>
@@ -238,22 +248,31 @@ export default function AnalyzePage() {
             </div>
 
             {/* Legend */}
-            <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-xl text-center">
-              <p className="text-xs text-slate-500">
-                <span className="text-blue-400">-1 (left)</span> → 
-                <span className="text-green-400"> 0 (neutral)</span> → 
-                <span className="text-red-400">+1 (right)</span>
+            <div className="p-4 bg-stone-100 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 rounded-lg text-center">
+              <p className="text-xs text-stone-600 dark:text-stone-400">
+                <span className="text-red-600 dark:text-red-400">-1 (left)</span> →
+                <span className="text-green-600 dark:text-green-400"> 0 (neutral)</span> →
+                <span className="text-blue-600 dark:text-blue-400">+1 (right)</span>
               </p>
             </div>
 
-            {/* Analyze Another */}
-            <button
-              onClick={() => setResults(null)}
-              className="w-full py-3 border border-slate-700 hover:border-slate-600 
-                         text-slate-400 hover:text-white rounded-xl transition-colors"
-            >
-              Analyze Another Article
-            </button>
+            {/* Action Buttons */}
+            <div className="flex gap-3">
+              <Link
+                href="/dashboard"
+                className="flex-1 py-3 border border-stone-300 dark:border-stone-700 hover:border-stone-900 dark:hover:border-stone-100
+                           text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 rounded-lg transition-colors text-center font-medium"
+              >
+                View Your History →
+              </Link>
+              <button
+                onClick={() => setResults(null)}
+                className="flex-1 py-3 border border-stone-300 dark:border-stone-700 hover:border-stone-900 dark:hover:border-stone-100
+                           text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 rounded-lg transition-colors font-medium"
+              >
+                Analyze Another
+              </button>
+            </div>
           </div>
         )}
       </div>

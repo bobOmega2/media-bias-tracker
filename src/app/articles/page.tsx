@@ -1,4 +1,5 @@
 import { createClient } from '@/utils/supabase/server'
+import Link from 'next/link'
 
 export default async function ArticlesPage() {
   const supabase = await createClient()
@@ -8,44 +9,24 @@ export default async function ArticlesPage() {
     .from('news_categories')
     .select('id, name')
 
-  // Fetch articles with ai_scores
+  // Fetch articles with AI scores (exclude user-analyzed articles)
   const { data: articlesData } = await supabase
     .from('media')
     .select(`
       *,
       ai_scores (
         score,
-        model_name
+        model_name,
+        explanation,
+        bias_categories (
+          name
+        )
       )
     `)
+    .eq('user_analyzed', false)  // Only show curated GNews articles
 
-  const allArticles: any[] = []
-
-  if (categories && articlesData) {
-    for (const article of articlesData) {
-      const category = categories.find(c => c.id === article.category_id)
-      allArticles.push({
-        id: article.id,
-        title: article.title,
-        url: article.url,
-        image: article.image_url || null,
-        source: article.source?.name || 'Unknown',
-        category_id: article.category_id,
-        category_name: category?.name || 'Uncategorized',
-        ai_scores: article.ai_scores || []
-      })
-    }
-  }
-
-  // Remove duplicates
-  const articles = Array.from(new Map(allArticles.map(a => [a.id, a])).values())
-
-  // Group articles by category
-  const groupedArticles: { [key: string]: typeof articles } = {}
-  for (const article of articles) {
-    const cat = article.category_name
-    if (!groupedArticles[cat]) groupedArticles[cat] = []
-    groupedArticles[cat].push(article)
+  if (!articlesData || !categories) {
+    return <div className="p-6">No articles found.</div>
   }
 
   // Helper to pick badge color based on score
@@ -53,6 +34,44 @@ export default async function ArticlesPage() {
     if (score > 0) return 'bg-green-200 text-green-800 dark:bg-green-800 dark:text-green-200'
     if (score < 0) return 'bg-red-200 text-red-800 dark:bg-red-800 dark:text-red-200'
     return 'bg-gray-200 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+  }
+
+  // Separate promo articles (top 20 with AI scores) and others
+  const analyzedArticles: any[] = []
+  const otherArticles: any[] = []
+
+  articlesData.forEach(article => {
+    if (article.ai_scores && article.ai_scores.length > 0 && analyzedArticles.length <= 7) {
+      analyzedArticles.push(article)
+    } else {
+      otherArticles.push(article)
+    }
+  })
+
+  // Map articles for display
+  const mapArticle = (article: any) => {
+    const category = categories.find(c => c.id === article.category_id)
+    return {
+      id: article.id,
+      title: article.title,
+      url: article.url,
+      image: article.image_url || null,
+      source: article.source || 'Unknown',
+      category_id: article.category_id,
+      category_name: category?.name || 'Uncategorized',
+      ai_scores: article.ai_scores || []
+    }
+  }
+
+  const promoArticles = analyzedArticles.map(mapArticle)
+  const remainingArticles = otherArticles.map(mapArticle)
+
+  // Group remaining articles by category
+  const groupedArticles: { [key: string]: typeof remainingArticles } = {}
+  for (const article of remainingArticles) {
+    const cat = article.category_name
+    if (!groupedArticles[cat]) groupedArticles[cat] = []
+    groupedArticles[cat].push(article)
   }
 
   return (
@@ -68,39 +87,43 @@ export default async function ArticlesPage() {
             Discover Articles
           </h1>
           <p className="text-stone-600 dark:text-stone-400 text-lg">
-            Browse {articles.length} articles across {Object.keys(groupedArticles).length} categories.
+            Browse {articlesData.length} articles across {Object.keys(groupedArticles).length} categories.
           </p>
         </header>
 
-        {/* Categories */}
-        {Object.entries(groupedArticles).map(([categoryName, categoryArticles]) => (
-          <section key={categoryName} className="mb-12">
+        {/* Promo Section: Top 20 Analyzed Articles */}
+        {promoArticles.length > 0 && (
+          <section className="mb-12">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-serif font-semibold text-stone-900 dark:text-stone-100 capitalize transition-colors duration-300">
-                {categoryName}
+                Top Analyzed Articles
               </h2>
-              <span className="text-xs text-stone-400 dark:text-stone-500">
-                {categoryArticles.length} articles
-              </span>
+              <a
+                href="/analyze"
+                className="text-xs text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+              >
+                Analyze Your Own →
+              </a>
             </div>
 
             <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
-              {categoryArticles.map((article: any) => (
-                <article 
-                  key={article.id} 
-                  className="flex-shrink-0 w-72 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-lg overflow-hidden group transition-colors duration-300"
+              {promoArticles.map((article: any) => (
+                <Link
+                  key={article.id}
+                  href={`/articles/${article.id}`}
+                  className="flex-shrink-0 w-72 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-lg overflow-hidden group transition-colors duration-300 hover:border-stone-400 dark:hover:border-stone-600 cursor-pointer"
                 >
                   {/* Image */}
                   {article.image && (
                     <div className="w-full h-48 overflow-hidden">
-                      <img 
-                        src={article.image} 
+                      <img
+                        src={article.image}
                         alt={article.title}
                         className="w-full h-full object-cover"
                       />
                     </div>
                   )}
-                  
+
                   <div className="p-4">
                     {/* Source */}
                     <div className="text-xs text-stone-500 dark:text-stone-400 mb-1">
@@ -115,28 +138,75 @@ export default async function ArticlesPage() {
                     {/* AI Score badges */}
                     <div className="flex flex-wrap gap-2">
                       {article.ai_scores.map((score: any, idx: number) => (
-                        <span 
-                          key={idx} 
+                        <span
+                          key={idx}
                           className={`px-2 py-1 rounded-full text-xs font-semibold ${getScoreColor(parseFloat(score.score))}`}
                         >
-                          {score.model_name}: {score.score}
+                          {score.bias_categories?.name}: {score.score}
                         </span>
                       ))}
                     </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
 
-                    {/* Read button */}
-                    <div className="mt-3">
-                      <a 
-                        href={article.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 transition-colors"
-                      >
-                        Read →
-                      </a>
+        {/* Remaining Articles by Category */}
+        {Object.entries(groupedArticles).map(([categoryName, categoryArticles]) => (
+          <section key={categoryName} className="mb-12">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-serif font-semibold text-stone-900 dark:text-stone-100 capitalize transition-colors duration-300">
+                {categoryName}
+              </h2>
+              <span className="text-xs text-stone-400 dark:text-stone-500">
+                {categoryArticles.length} articles
+              </span>
+            </div>
+
+            <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
+              {categoryArticles.map((article: any) => (
+                <Link
+                  key={article.id}
+                  href={`/articles/${article.id}`}
+                  className="flex-shrink-0 w-72 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-lg overflow-hidden group transition-colors duration-300 hover:border-stone-400 dark:hover:border-stone-600 cursor-pointer"
+                >
+                  {/* Image */}
+                  {article.image && (
+                    <div className="w-full h-48 overflow-hidden">
+                      <img
+                        src={article.image}
+                        alt={article.title}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
+
+                  <div className="p-4">
+                    {/* Source */}
+                    <div className="text-xs text-stone-500 dark:text-stone-400 mb-1">
+                      {article.source}
+                    </div>
+
+                    {/* Title */}
+                    <h3 className="font-serif text-sm text-stone-900 dark:text-stone-100 mb-3 line-clamp-2 group-hover:text-stone-600 dark:group-hover:text-stone-300 transition-colors duration-300">
+                      {article.title}
+                    </h3>
+
+                    {/* AI Score badges */}
+                    <div className="flex flex-wrap gap-2">
+                      {article.ai_scores.map((score: any, idx: number) => (
+                        <span
+                          key={idx}
+                          className={`px-2 py-1 rounded-full text-xs font-semibold ${getScoreColor(parseFloat(score.score))}`}
+                        >
+                          {score.bias_categories?.name}: {score.score}
+                        </span>
+                      ))}
                     </div>
                   </div>
-                </article>
+                </Link>
               ))}
             </div>
           </section>
