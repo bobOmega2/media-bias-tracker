@@ -15,18 +15,30 @@ import Link from 'next/link'
 export default async function Page() {
   const supabase = await createClient()
 
-  // Fetch stats
-  const { count: totalArticles } = await supabase
+  // Fetch stats from both active and archived tables
+  const { count: activeArticles } = await supabase
     .from('media')
     .select('*', { count: 'exact', head: true })
+
+  const { count: archivedArticles } = await supabase
+    .from('archived_media')
+    .select('*', { count: 'exact', head: true })
+
+  const totalArticles = (activeArticles || 0) + (archivedArticles || 0)
 
   const { count: totalCategories } = await supabase
     .from('bias_categories')
     .select('*', { count: 'exact', head: true })
 
-  const { count: totalScores } = await supabase
+  const { count: activeScores } = await supabase
     .from('ai_scores')
     .select('*', { count: 'exact', head: true })
+
+  const { count: archivedScores } = await supabase
+    .from('archived_ai_scores')
+    .select('*', { count: 'exact', head: true })
+
+  const totalScores = (activeScores || 0) + (archivedScores || 0)
 
   // Fetch bias categories for display
   const { data: biasCategories } = await supabase
