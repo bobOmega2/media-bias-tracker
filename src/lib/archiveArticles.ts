@@ -103,6 +103,8 @@ export async function archiveOldArticles(
           created_at: article.created_at
         }
 
+        console.log('[Archive] Inserting to archived_media:', JSON.stringify(archivedArticle, null, 2))
+
         const { error: archiveError } = await supabaseAdmin
           .from('archived_media')
           .insert(archivedArticle)
@@ -121,6 +123,9 @@ export async function archiveOldArticles(
             model_name: score.model_name,
             created_at: score.created_at
           }))
+
+          console.log('[Archive] Inserting', archivedScores.length, 'ai_scores to archived_ai_scores')
+          console.log('[Archive] First score sample:', JSON.stringify(archivedScores[0], null, 2))
 
           const { error: scoresArchiveError } = await supabaseAdmin
             .from('archived_ai_scores')
