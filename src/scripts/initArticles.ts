@@ -72,4 +72,4 @@ async function main() {
 }
 
 // Run the script when executed directly
-main().then(() => console.log('Script finished.'))
+// main().then(() => console.log('Script finished.'))
