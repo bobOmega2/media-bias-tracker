@@ -88,8 +88,9 @@ export async function archiveOldArticles(
           throw new Error(`Failed to fetch ai_scores: ${scoresError.message}`)
         }
 
-        // Insert article into archived_media (id will auto-generate)
+        // Insert article into archived_media (keeping same ID)
         const archivedArticle = {
+          id: article.id,
           title: article.title,
           url: article.url,
           source: article.source,
@@ -113,9 +114,10 @@ export async function archiveOldArticles(
           throw new Error(`Failed to insert into archived_media: ${archiveError.message}`)
         }
 
-        // Insert ai_scores into archived_ai_scores (id will auto-generate, media_id preserved)
+        // Insert ai_scores into archived_ai_scores (keeping same IDs and media_id)
         if (aiScores && aiScores.length > 0) {
           const archivedScores = aiScores.map(score => ({
+            id: score.id,
             media_id: score.media_id,
             category_id: score.category_id,
             score: score.score,
