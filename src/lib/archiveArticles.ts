@@ -88,9 +88,8 @@ export async function archiveOldArticles(
           throw new Error(`Failed to fetch ai_scores: ${scoresError.message}`)
         }
 
-        // Insert article into archived_media
+        // Insert article into archived_media (id will auto-generate)
         const archivedArticle = {
-          original_id: article.id,
           title: article.title,
           url: article.url,
           source: article.source,
@@ -100,9 +99,8 @@ export async function archiveOldArticles(
           media_type: article.media_type,
           category_id: article.category_id,
           user_analyzed: article.user_analyzed,
-          created_at: article.created_at,
-          updated_at: article.updated_at,
-          archived_at: new Date().toISOString()
+          on_homepage: article.on_homepage || false,
+          created_at: article.created_at
         }
 
         const { error: archiveError } = await supabaseAdmin
@@ -113,17 +111,15 @@ export async function archiveOldArticles(
           throw new Error(`Failed to insert into archived_media: ${archiveError.message}`)
         }
 
-        // Insert ai_scores into archived_ai_scores
+        // Insert ai_scores into archived_ai_scores (id will auto-generate, media_id preserved)
         if (aiScores && aiScores.length > 0) {
           const archivedScores = aiScores.map(score => ({
-            original_media_id: score.media_id,
+            media_id: score.media_id,
             category_id: score.category_id,
             score: score.score,
             explanation: score.explanation,
             model_name: score.model_name,
-            created_at: score.created_at,
-            updated_at: score.updated_at,
-            archived_at: new Date().toISOString()
+            created_at: score.created_at
           }))
 
           const { error: scoresArchiveError } = await supabaseAdmin
