@@ -961,3 +961,24 @@ const { data } = await supabase
 - [ ] Improve empty state design
 - [ ] Add tooltips explaining bias scores
 - [ ] Mobile responsiveness testing
+
+### Date
+January 11, 2026
+
+### What I Worked On Today
+- Implemented and tested the Vercel cron job for daily article fetching and archival.
+- Verified that the cron job correctly archives old articles (1+ days old) and fetches new articles from the GNews API.
+- Monitored logs from today’s cron run: successfully fetched 50 new articles across 7 categories; analyzed a sample of 4–5 articles for bias using Google Gemini API.
+- Observed API rate limits for certain categories (technology, entertainment, sports, health) and confirmed the system handles retries and continues fetching remaining articles.
+- Reviewed `initArticles.ts` script structure: clarified difference between exported `runInitArticles()` function (used by cron) and top-level `main()` function for standalone execution.
+
+### What I Learned
+- Batch analysis works as expected; Gemini API provides political, economic, and sensationalism scores with explanations.
+- Some articles fail to fetch content occasionally (e.g., “Eoin McGee: 'The accident gave me a wake-up call…'”). Need to investigate retry or error-handling strategy.
+- Learned that top-level code in scripts runs automatically when importing, which is why the cron job only uses exported functions.
+
+### Next Steps
+- Consider implementing better rate-limit handling or scheduling to avoid GNews 429 errors.
+- Expand sample analysis from 1 article per category to more for testing.
+- Explore adding more AI APIs (OpenRouter, others) to reduce reliance on Gemini credits.
+- Update project journal and notes for resume/project.
