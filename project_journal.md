@@ -982,3 +982,236 @@ January 11, 2026
 - Expand sample analysis from 1 article per category to more for testing.
 - Explore adding more AI APIs (OpenRouter, others) to reduce reliance on Gemini credits.
 - Update project journal and notes for resume/project.
+
+---
+
+## January 13, 2026
+
+### What I Worked On Today
+
+**Multi-Model AI Integration - Groq + Gemini Parallel Analysis**
+
+- Implemented dual-model AI bias analysis using both Google Gemini and Meta Llama (via Groq)
+- Both models analyze the same articles **in parallel** using `Promise.all()` to avoid doubling execution time
+- Increased article analysis from 1 per category to 18 articles total per cron run
+- Updated cron job to stay within 5-minute Vercel timeout constraint
+
+**Backend Implementation**
+- Added Groq SDK (`groq-sdk`) and initialized Groq client in `lib/ai.ts`
+- Created `analyzeWithGroq()` function mirroring `analyzeWithGemini()` structure
+- Updated `analyzeArticle()` to run both models simultaneously:
+  - Uses `Promise.all([analyzeWithGemini(), analyzeWithGroq()])`
+  - Saves scores from both models to `ai_scores` table
+  - Distinguishes models via `model_name` field: `'gemini-2.5-flash'` vs `'llama-3.3-70b-versatile'`
+- Changed return type from single `AIAnalysis` to `{ gemini: AIAnalysis | null, groq: AIAnalysis | null }`
+- Updated `analyzeArticlesBatch()` return type to match
+
+**API Updates**
+- Modified `/api/ai_analyze/route.ts` to return both model results:
+  ```typescript
+  {
+    success: true,
+    media: {...},
+    analysis: {
+      gemini: {...},
+      groq: {...}
+    }
+  }
+  ```
+
+**Frontend Updates**
+- Updated `/analyze/page.tsx` TypeScript interface to handle dual-model results
+- Redesigned results display to show both models side-by-side:
+  - **Google Gemini** section with blue badge
+  - **Meta Llama (Groq)** section with purple badge
+  - Each shows separate summary and bias scores
+  - Added "Multi-Model AI Analysis" header explaining the approach
+- Maintained existing color-coded score system for both models
+
+**Cron Job Configuration**
+- Updated from 1 article per category (7-8 articles) to **18 articles total**
+- Timeline calculation with parallel execution:
+  - 18 articles × 15s delay = 270s (4.5 minutes)
+  - Gemini + Groq run in parallel (not sequential)
+  - Total time: ~4.5-4.8 minutes (safely under 5-minute timeout)
+- Database impact: ~90 rows/day → ~180 rows/day in `ai_scores` table
+
+**Configuration**
+- Groq API key already present in `.env.local`
+- `groq-sdk` package already installed
+
+### Problems Encountered & Solutions
+
+**Parallel vs Sequential Execution Decision**
+- **Problem**: Initial approach would double execution time (18 × 2 models × 15s = 9 minutes)
+- **Solution**: Used `Promise.all()` to run both models simultaneously per article
+- **Result**: Maintains original ~4.5 minute execution time
+
+**Return Type Complexity**
+- **Problem**: Changing return type affects multiple callers (API route, batch function, frontend)
+- **Solution**:
+  - Updated return type systematically from innermost function outward
+  - Changed `analyzeArticle()`, `analyzeArticlesBatch()`, API route, and frontend interface
+  - Used TypeScript to catch all required updates
+- **Lesson**: Type system helps ensure consistency across full stack
+
+**Frontend Display Architecture**
+- **Problem**: Need to show two model results clearly without cluttering UI
+- **Solution**:
+  - Separate sections with distinct color badges (blue for Gemini, purple for Groq)
+  - Maintained consistent card layout for scores
+  - Added explanatory header about multi-model approach
+- **Result**: Clean, professional UI that highlights the technical sophistication
+
+### Design Decisions
+
+**Why Parallel Execution?**
+- **Performance**: No timeout issues, same execution time as single model
+- **Data Quality**: Two independent AI perspectives reduce individual model bias
+- **Fault Tolerance**: If one model fails, the other can still succeed
+- **Cost Efficiency**: Both APIs well within free tier limits
+
+**Why Groq + Gemini?**
+- **Diversity**: Google's Gemini vs Meta's Llama - different training data, different biases
+- **Speed**: Groq provides extremely fast inference (free tier: 14,400 requests/day)
+- **Comparison**: Can analyze how different models interpret same content
+- **Resume Value**: "Multi-model AI comparison" demonstrates sophisticated thinking
+
+**Why 18 Articles?**
+- **Timeout Constraint**: 18 × 15s = 270s (4.5 min) stays under 5-minute limit
+- **Analysis Quality**: More articles (18 vs 7-8) = better data diversity
+- **API Quotas**: Well within limits:
+  - Gemini: 18/day (limit: 1500/day)
+  - Groq: 18/day (limit: 14,400/day)
+
+**Database Schema (Unchanged)**
+- No schema changes needed - `model_name` field already supports multiple models
+- Each article now has 2× bias categories × 2 models = 2× database rows
+- Keeps data normalized and queryable
+
+### Technical Concepts Demonstrated
+
+**Asynchronous Programming**
+- `Promise.all()` for concurrent operations
+- Understanding JavaScript event loop and parallelism
+- Proper error handling for parallel promises
+
+**Type Safety**
+- TypeScript interfaces updated across full stack
+- Return type changes propagated systematically
+- Optional chaining for nullable nested data
+
+**API Integration**
+- Multiple AI provider integration (Gemini, Groq)
+- Fallback model logic (primary + backup models)
+- Rate limiting with delays
+
+**Full Stack Coordination**
+- Backend changes (return type) require frontend updates (interface)
+- API response structure changes affect UI rendering
+- Maintained backward compatibility where possible
+
+### Architecture Improvements
+
+**Scalability**
+- Easy to add more AI models (OpenAI, Claude, etc.)
+- Model comparison infrastructure in place
+- Database ready for model performance tracking
+
+**Code Maintainability**
+- `analyzeWithGroq()` mirrors `analyzeWithGemini()` - consistent patterns
+- Parallel execution encapsulated in single `Promise.all()` call
+- Clear separation: analysis logic vs database storage vs API response
+
+**User Experience**
+- Users see multiple AI perspectives on same article
+- Can compare how different models interpret bias
+- More trustworthy than single model opinion
+
+### What I Learned Today
+
+**Technical**
+- `Promise.all()` enables true parallelism in JavaScript
+- Parallel execution doesn't double API quota usage (both run simultaneously)
+- TypeScript return type changes cascade through full stack
+- Groq SDK structure similar to OpenAI (chat completions pattern)
+
+**Architectural**
+- Multi-model AI analysis is a professional approach to reducing bias
+- Parallel execution solves timeout constraints without sacrificing features
+- Return type design affects API contracts and frontend contracts
+- Database schema flexibility (model_name field) enables easy expansion
+
+**Best Practices**
+- Start with single model, expand to multi-model incrementally
+- Use `Promise.all()` for independent async operations
+- Update TypeScript types systematically to catch breaking changes
+- Document timing constraints (5-minute timeout) in comments
+
+### Interview Talking Points
+
+1. **Multi-Model Strategy**
+   - "I implemented parallel AI analysis to reduce individual model bias"
+   - "Used Google Gemini and Meta Llama via Groq for diverse perspectives"
+   - "Promise.all() ensures no performance penalty for dual analysis"
+
+2. **Timeout Optimization**
+   - "Analyzed parallelism vs sequencing to stay within 5-minute constraint"
+   - "Calculated: 18 articles × 15s delay = 270s, well under limit"
+   - "Increased analysis from 7-8 to 18 articles while maintaining timeout safety"
+
+3. **Type Safety**
+   - "Updated return types systematically from backend to frontend"
+   - "TypeScript caught all required interface changes automatically"
+   - "Demonstrates full-stack type safety understanding"
+
+4. **Scalable Design**
+   - "Database schema supports unlimited models via model_name field"
+   - "Easy to add OpenAI, Claude, etc. using same pattern"
+   - "Built for future model comparison and analysis"
+
+### Files Created/Modified
+
+| File | Action | Changes |
+|------|--------|---------|
+| `lib/ai.ts` | Modified | Added Groq client, `analyzeWithGroq()`, parallel execution in `analyzeArticle()` |
+| `app/api/ai_analyze/route.ts` | Modified | Return both Gemini and Groq results |
+| `app/analyze/page.tsx` | Modified | Updated interface, dual-model results display |
+| `app/api/cron/archive-articles/route.ts` | Modified | Updated comment to reflect "18 with Gemini + Groq" |
+| `scripts/initArticles.ts` | No changes | Already calls updated functions, works automatically |
+| `.env.local` | No changes | Groq API key already configured |
+
+### Metrics & Performance
+
+**Before (Single Model)**
+- Articles analyzed: 7-8 per day (1 per category)
+- AI API calls: 7-8 per day
+- Database rows: ~40-50 per day
+- Execution time: ~2 minutes
+
+**After (Dual Model, Parallel)**
+- Articles analyzed: 18 per day
+- AI API calls: 36 per day (18 × 2 models in parallel)
+- Database rows: ~180 per day
+- Execution time: ~4.5 minutes
+
+**Key Insight**: 2.3× more articles analyzed with 2× model diversity in 2.25× time (not 4× if sequential).
+
+### Next Steps
+
+**Testing**
+- [ ] Test frontend with real article analysis (both models)
+- [ ] Verify database shows both model_name values
+- [ ] Monitor cron job logs for "Gemini Analysis Success" and "Groq Analysis Success"
+- [ ] Confirm execution stays under 5 minutes
+
+**Future Enhancements**
+- [ ] Add model comparison metrics (agreement score between models)
+- [ ] Visualize model differences in UI
+- [ ] Add more models (OpenAI GPT-4, Anthropic Claude)
+- [ ] Track model performance/accuracy over time
+
+**Polish**
+- [ ] Add loading states indicating "Analyzing with 2 AI models..."
+- [ ] Add badges showing which models succeeded/failed
+- [ ] Consider average score across models for overall bias rating

@@ -9,7 +9,7 @@ import { runInitArticles } from '@/scripts/initArticles'
  * Steps:
  * 1. Archive old articles (1+ days old)
  * 2. Fetch new articles from GNews API
- * 3. Analyze sample articles (1 per category)
+ * 3. Analyze sample articles (first 18 with 4 models: Gemini, Qwen, GPT-OSS, Llama Maverick)
  *
  * Security: Requires CRON_SECRET environment variable for authorization
  */

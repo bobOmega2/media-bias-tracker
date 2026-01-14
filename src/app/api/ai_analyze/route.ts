@@ -69,11 +69,16 @@ export async function POST(request: NextRequest) {
       supabaseClient: supabase
     })
 
-    // Return both media record and analysis
+    // Return media record and analysis from all 4 models
     return NextResponse.json({
       success: true,
       media: mediaRecord || { id: finalMediaId, title, url, source },
-      analysis
+      analysis: {
+        gemini: analysis.gemini,
+        qwen: analysis.qwen,
+        gptOss: analysis.gptOss,
+        llamaMaverick: analysis.llamaMaverick
+      }
     })
 
   } catch (error) {

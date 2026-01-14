@@ -389,19 +389,41 @@ export default function DashboardPage() {
                     </p>
                   )}
 
-                  {/* AI Score badges */}
-                  {article.ai_scores && article.ai_scores.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {article.ai_scores.map((score, idx) => (
-                        <span
-                          key={idx}
-                          className={`px-2 py-1 rounded-full text-xs font-semibold ${getScoreColor(score.score)}`}
-                        >
-                          {score.bias_categories?.name || 'Unknown'}: {score.score}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  {/* AI Score badges - Averaged */}
+                  {article.ai_scores && article.ai_scores.length > 0 && (() => {
+                    // Calculate average scores per category
+                    const categoryAverages = new Map<string, { sum: number; count: number }>()
+
+                    article.ai_scores.forEach(score => {
+                      const categoryName = score.bias_categories?.name
+                      if (categoryName) {
+                        const current = categoryAverages.get(categoryName) || { sum: 0, count: 0 }
+                        categoryAverages.set(categoryName, {
+                          sum: current.sum + score.score,
+                          count: current.count + 1
+                        })
+                      }
+                    })
+
+                    // Convert to array with averages
+                    const averagedScores = Array.from(categoryAverages.entries()).map(([category, data]) => ({
+                      category,
+                      avgScore: data.sum / data.count
+                    }))
+
+                    return (
+                      <div className="flex flex-wrap gap-2">
+                        {averagedScores.map((score, idx) => (
+                          <span
+                            key={idx}
+                            className={`px-2 py-1 rounded-full text-xs font-semibold ${getScoreColor(score.avgScore)}`}
+                          >
+                            {score.category}: {score.avgScore.toFixed(2)}
+                          </span>
+                        ))}
+                      </div>
+                    )
+                  })()}
 
                   {/* No scores indicator */}
                   {(!article.ai_scores || article.ai_scores.length === 0) && (

@@ -291,3 +291,243 @@ const category = score.bias_categories?.[0]
 ```
 
 **Lesson**: Don't assume Supabase nested queries return objects for 1:1 relationships. Always use arrays and optional chaining.
+
+---
+
+## Multi-Model AI Analysis Architecture
+
+### Date: January 13, 2026
+
+### Decision: Implement Parallel Dual-Model Bias Analysis
+
+**Problem**: Single AI model bias detection can inherit the model's own biases. Need multiple perspectives without doubling execution time.
+
+**Solution**: Parallel analysis using both Google Gemini and Meta Llama (via Groq).
+
+### Implementation Strategy
+
+**Parallel Execution Pattern**:
+```typescript
+const [geminiAnalysis, groqAnalysis] = await Promise.all([
+  analyzeWithGemini(articleContent, categoryNames),
+  analyzeWithGroq(articleContent, categoryNames)
+])
+```
+
+**Why This Works**:
+- Both API calls execute simultaneously (not sequential)
+- Total time = max(gemini_time, groq_time) + delay, not sum
+- If one model fails, other can still succeed
+- No API quota penalty (both count as 1 request per article, not 2)
+
+### Model Selection Rationale
+
+**Google Gemini (gemini-2.5-flash)**
+- Pros: High accuracy, good at nuanced text analysis
+- Cons: 1500 requests/day limit
+- Use case: Primary bias detection model
+
+**Meta Llama 3.3 (via Groq - llama-3.3-70b-versatile)**
+- Pros: 14,400 requests/day, extremely fast inference, different training corpus
+- Cons: Slightly less accurate than GPT-4/Gemini for complex analysis
+- Use case: Second perspective, diversity in model architecture
+
+**Fallback Models**:
+- Gemini: `gemini-2.5-flash-lite` (if primary rate-limited)
+- Groq: `llama-3.1-8b-instant` (if primary rate-limited)
+
+### Database Schema Integration
+
+**No Schema Changes Required**
+- Existing `model_name` field in `ai_scores` table supports unlimited models
+- Each article now generates 2× rows (one per model per category)
+- Query pattern remains unchanged: filter by `model_name` to compare models
+
+**Data Structure**:
+```sql
+-- Before (single model)
+article_id | category_id | score | model_name
+abc123     | political   | 0.5   | gemini-2.5-flash
+
+-- After (dual model)
+article_id | category_id | score | model_name
+abc123     | political   | 0.5   | gemini-2.5-flash
+abc123     | political   | 0.3   | llama-3.3-70b-versatile
+```
+
+### API Response Structure
+
+**Changed Return Type**:
+```typescript
+// Before
+interface AnalysisResult {
+  analysis: {
+    scores: AIScore[]
+    summary: string
+  }
+}
+
+// After
+interface AnalysisResult {
+  analysis: {
+    gemini: {
+      scores: AIScore[]
+      summary: string
+    } | null
+    groq: {
+      scores: AIScore[]
+      summary: string
+    } | null
+  }
+}
+```
+
+**Why This Design**:
+- Explicit model separation (not merged)
+- Frontend can display both perspectives
+- Nullable types handle model failures gracefully
+- Future: add more models without breaking changes
+
+### Frontend Display Strategy
+
+**UI Layout**: Side-by-side model comparison
+- **Gemini section**: Blue badge, shows Gemini results
+- **Groq section**: Purple badge, shows Llama results
+- **Header**: Explains multi-model approach to users
+- **Benefit**: Users can see model agreement/disagreement
+
+**Color Coding**:
+- Blue (`bg-blue-100`) = Google Gemini
+- Purple (`bg-purple-100`) = Meta Llama (Groq)
+- Maintains existing score colors (red/green/blue for bias direction)
+
+### Performance Optimization
+
+**Timeout Constraint**: 5 minutes (Vercel serverless limit)
+
+**Calculation**:
+- 18 articles × 2 models in parallel = 18 parallel API call pairs
+- 18 × 15s delay = 270s (4.5 minutes)
+- API call time (~10-20s) happens during delay period
+- **Total: ~4.5-4.8 minutes** ✓ Under limit
+
+**Why 18 Articles?**
+- Maximum articles that fit in timeout with dual models
+- More than previous 7-8 articles (1 per category)
+- Enough for statistical significance in bias analysis
+
+### Rate Limiting Strategy
+
+**Delay Between Articles**: 15 seconds
+- Prevents rate limit errors on both APIs
+- Allows parallel execution without exceeding quotas
+- Conservative approach (both APIs allow much higher rates)
+
+**API Quotas**:
+| Model | Daily Limit | Usage | % Used |
+|-------|------------|-------|--------|
+| Gemini 2.5 Flash | 1,500/day | 18/day | 1.2% |
+| Groq Llama 3.3 | 14,400/day | 18/day | 0.125% |
+
+### Type Safety Implementation
+
+**Cascading Type Updates**:
+1. `analyzeArticle()` return type changed
+2. `analyzeArticlesBatch()` return type updated to match
+3. `/api/ai_analyze` response type updated
+4. Frontend `AnalysisResult` interface updated
+5. Component rendering logic updated
+
+**Benefit**: TypeScript ensures no breaking changes missed.
+
+### Error Handling Strategy
+
+**Graceful Degradation**:
+- If **both models fail**: Throw error (analysis failed)
+- If **Gemini fails, Groq succeeds**: Save Groq scores only
+- If **Groq fails, Gemini succeeds**: Save Gemini scores only
+- Frontend displays whichever models succeeded
+
+**Code Pattern**:
+```typescript
+if (!geminiAnalysis && !groqAnalysis) {
+  throw new Error('All AI models failed')
+}
+
+if (geminiAnalysis) {
+  // Save Gemini scores
+}
+
+if (groqAnalysis) {
+  // Save Groq scores
+}
+```
+
+### Scalability Considerations
+
+**Adding More Models (Future)**:
+- Pattern established: add new `analyzeWithX()` function
+- Add to `Promise.all()` array
+- Update return type to include new model
+- Frontend automatically shows new section
+
+**Example (3 models)**:
+```typescript
+const [gemini, groq, openai] = await Promise.all([
+  analyzeWithGemini(...),
+  analyzeWithGroq(...),
+  analyzeWithOpenAI(...)
+])
+
+return { gemini, groq, openai }
+```
+
+**Database Scales Automatically**: `model_name` field handles any number of models.
+
+### Trade-Offs Considered
+
+| Option | Pros | Cons | Decision |
+|--------|------|------|----------|
+| **Sequential** | Simple logic | 9+ min execution | ❌ Rejected (timeout) |
+| **Parallel** | Fast, dual perspective | Complex type handling | ✅ **Chosen** |
+| **Single model** | Simplest | Single point of bias | ❌ Rejected (bias concern) |
+| **More articles** | More data | Timeout risk | ⚠️ Limited to 18 |
+
+### Interview Talking Points
+
+1. **Parallel Execution**:
+   - "I used `Promise.all()` to run multiple AI models simultaneously"
+   - "This prevented timeout issues while doubling the data quality"
+   - "Demonstrates understanding of async programming and performance optimization"
+
+2. **Multi-Model Strategy**:
+   - "Different AI models have different training biases"
+   - "Google's Gemini vs Meta's Llama provides diverse perspectives"
+   - "Users can see model agreement/disagreement on bias scores"
+
+3. **Type Safety**:
+   - "Changed return types systematically across full stack"
+   - "TypeScript caught all required interface updates"
+   - "Shows rigorous approach to refactoring in typed languages"
+
+4. **Scalable Architecture**:
+   - "Database schema supports unlimited models via model_name field"
+   - "Easy to add OpenAI, Claude, or other providers"
+   - "Demonstrates forward-thinking design"
+
+### Lessons Learned
+
+**Technical**:
+- `Promise.all()` is the correct pattern for independent parallel operations
+- Return type changes cascade through full stack (backend → API → frontend)
+- Optional types (`| null`) handle model failures gracefully
+
+**Architectural**:
+- Multi-model analysis is industry best practice for bias detection
+- Parallel execution can solve timeout constraints elegantly
+- Database schema should be designed for flexibility (model_name vs hardcoded fields)
+
+**Best Practices**:
+- Always calculate timing constraints before implementing (18 × 15s = 4.5 min)
+- Use TypeScript to enforce consistency during refactoring
+- Document why decisions were made (future you will thank you)

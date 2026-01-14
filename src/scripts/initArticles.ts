@@ -24,16 +24,8 @@ export async function runInitArticles() {
     const insertedArticles = await insertGNewsArticles()
     console.log(`[InitArticles] Inserted ${insertedArticles.length} articles.`)
 
-    // For testing: pick one article per category
-    const articlesByCategory: Record<string, any> = {}
-    for (const article of insertedArticles) {
-      if (!articlesByCategory[article.category_id]) {
-        articlesByCategory[article.category_id] = article
-      }
-    }
-
-    // Get an array of one article per category
-    const testArticles = Object.values(articlesByCategory)
+    // Analyze first 18 articles (fits within 5-minute timeout with 15s delays)
+    const testArticles = insertedArticles.slice(0, 18)
 
     console.log(`[InitArticles] Analyzing ${testArticles.length} articles...`)
 

@@ -14,12 +14,38 @@ interface AnalysisResult {
     source: string
   }
   analysis: {
-    scores: {
-      category: string
-      score: number
-      explanation: string
-    }[]
-    summary: string
+    gemini: {
+      scores: {
+        category: string
+        score: number
+        explanation: string
+      }[]
+      summary: string
+    } | null
+    qwen: {
+      scores: {
+        category: string
+        score: number
+        explanation: string
+      }[]
+      summary: string
+    } | null
+    gptOss: {
+      scores: {
+        category: string
+        score: number
+        explanation: string
+      }[]
+      summary: string
+    } | null
+    llamaMaverick: {
+      scores: {
+        category: string
+        score: number
+        explanation: string
+      }[]
+      summary: string
+    } | null
   }
 }
 
@@ -217,35 +243,70 @@ export default function AnalyzePage() {
               <p className="text-sm text-stone-600 dark:text-stone-400">{results.media.source}</p>
             </div>
 
-            {/* Summary */}
-            <div className="p-5 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-lg">
-              <h3 className="text-sm font-medium text-stone-600 dark:text-stone-400 mb-2">Summary</h3>
-              <p className="text-stone-900 dark:text-stone-100">{results.analysis.summary}</p>
+            {/* Average Scores Header */}
+            <div className="p-4 bg-stone-100 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 rounded-lg">
+              <h3 className="text-sm font-medium text-stone-900 dark:text-stone-100 mb-1">Average Bias Scores</h3>
+              <p className="text-xs text-stone-600 dark:text-stone-400">
+                Averaged across {[results.analysis.gemini, results.analysis.qwen, results.analysis.gptOss, results.analysis.llamaMaverick].filter(Boolean).length} AI models (Google Gemini, Alibaba Qwen3, OpenAI GPT-OSS, Meta Llama 4)
+              </p>
             </div>
 
-            {/* Scores */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-medium text-stone-600 dark:text-stone-400">Bias Scores</h3>
+            {/* Calculate and Display Average Scores */}
+            {(() => {
+              // Collect all model analyses
+              const models = [
+                results.analysis.gemini,
+                results.analysis.qwen,
+                results.analysis.gptOss,
+                results.analysis.llamaMaverick
+              ].filter(Boolean)
 
-              {results.analysis.scores.map((score, index) => (
-                <div
-                  key={index}
-                  className="p-5 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-lg"
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <span className={`${getScoreColor(score.score)} text-sm px-3 py-1 rounded-full font-semibold capitalize`}>
-                      {score.category}
-                    </span>
-                    <span className="text-2xl font-bold text-stone-900 dark:text-stone-100">
-                      {score.score > 0 ? '+' : ''}{score.score.toFixed(1)}
-                    </span>
-                  </div>
-                  <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                    {score.explanation}
-                  </p>
+              if (models.length === 0) return null
+
+              // Calculate average scores for each category
+              const categoryAverages = new Map<string, { sum: number; count: number }>()
+
+              models.forEach(model => {
+                model.scores.forEach(score => {
+                  const current = categoryAverages.get(score.category) || { sum: 0, count: 0 }
+                  categoryAverages.set(score.category, {
+                    sum: current.sum + score.score,
+                    count: current.count + 1
+                  })
+                })
+              })
+
+              // Convert to array and calculate averages
+              const averagedScores = Array.from(categoryAverages.entries()).map(([category, data]) => ({
+                category,
+                score: data.sum / data.count,
+                modelCount: data.count
+              }))
+
+              return (
+                <div className="space-y-3">
+                  {/* Average Scores */}
+                  {averagedScores.map((score, index) => (
+                    <div
+                      key={index}
+                      className="p-5 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-lg"
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <span className={`${getScoreColor(score.score)} text-sm px-3 py-1 rounded-full font-semibold capitalize`}>
+                          {score.category}
+                        </span>
+                        <span className="text-2xl font-bold text-stone-900 dark:text-stone-100">
+                          {score.score > 0 ? '+' : ''}{score.score.toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-stone-500 dark:text-stone-500">
+                        Average of {score.modelCount} model{score.modelCount > 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )
+            })()}
 
             {/* Legend */}
             <div className="p-4 bg-stone-100 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 rounded-lg text-center">
