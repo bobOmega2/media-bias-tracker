@@ -1215,3 +1215,332 @@ January 11, 2026
 - [ ] Add loading states indicating "Analyzing with 2 AI models..."
 - [ ] Add badges showing which models succeeded/failed
 - [ ] Consider average score across models for overall bias rating
+
+---
+
+## January 15, 2026
+
+### What I Built
+
+**4-Model Parallel AI Analysis System**
+
+Expanded from 2 models (Gemini + Llama 3.3) to **4 models running in parallel**:
+1. **Google Gemini 2.5 Flash** - Primary model (via Google AI)
+2. **Alibaba Qwen3 32B** - Replaced Llama 3.3 (via Groq)
+3. **OpenAI GPT-OSS 120B** - New addition (via Groq)
+4. **Meta Llama 4 Maverick** - New addition (via Groq)
+
+All 4 models analyze each article **simultaneously** using `Promise.all()` to avoid timeout issues.
+
+**Dynamic Database-Driven AI Prompts**
+
+Major architectural improvement - prompts are now fully dynamic:
+- Fetched `description` column from `bias_categories` table
+- AI prompt instructions now built dynamically from database content
+- Changed function signatures to accept full category objects: `Array<{ name: string; description: string }>`
+- Eliminates "Category not found" warnings caused by hardcoded prompt definitions
+
+Before: Hardcoded category definitions in code
+```typescript
+// Old (brittle)
+const categoryNames = categories.map(c => c.name)  // Just names
+```
+
+After: Dynamic from database
+```typescript
+// New (database-driven)
+const categoryInstructions = biasCategories
+  .map((cat, index) => `${index + 1}. ${cat.name.toUpperCase()}:\n${cat.description}`)
+  .join('\n\n')
+```
+
+**URL-Only Analyze Page (Simplified UX)**
+
+- Removed title and source input fields from analyze page
+- API route now uses `@extractus/article-extractor` to extract metadata automatically
+- Extracts: title, source, description, image_url from just the URL
+- Better data quality: captures article images for dashboard display
+- Faster UX: one field instead of three
+
+**Detailed Results Display**
+
+- Added "Detailed Model Analysis" section showing individual model scores
+- Each model displays: category scores, explanations, and summary
+- Color-coded cards: Blue (Gemini), Orange (Qwen), Green (GPT-OSS), Purple (Llama Maverick)
+- Shows which models succeeded/failed per article
+
+**Consistent UI Styling Across Pages**
+
+Standardized styling across homepage, dashboard, and analyze page:
+- Unified Tailwind patterns: `bg-blue-100 dark:bg-blue-900/30`
+- Consistent grid layouts: `grid grid-cols-1 md:grid-cols-2 gap-4`
+- Same typography: `text-2xl font-serif font-bold` for headers
+- Maintained distinct model colors for visual differentiation
+
+**Comprehensive Cron Job Logging**
+
+Added extensive debugging output for tomorrow's cron run monitoring:
+- **Unique run ID**: `cron-${Date.now()}` for tracing requests
+- **Environment checks**: Verifies all API keys present at startup
+- **Step markers**: Clear visual separation of archival vs fetch phases
+- **Duration tracking**: Milliseconds for each operation
+- **Success/failure indicators**: Checkmarks and X marks for clarity
+- **Progress updates**: Estimated time remaining during batch
+
+Log format example:
+```
+[Cron cron-1736956800000] ========== CRON JOB STARTED ==========
+[Cron cron-1736956800000] Environment check:
+[Cron cron-1736956800000]   - CRON_SECRET exists: true
+[Cron cron-1736956800000]   - GEMINI_API_KEY exists: true
+[Cron cron-1736956800000]   - GROQ_API_KEY exists: true
+```
+
+### Problems Encountered & Solutions
+
+#### 1. Model Name Mismatch in Database Saves
+
+**Problem**: Qwen, GPT-OSS, and Llama Maverick models weren't being saved correctly to database.
+
+**Root Cause**: The helper function was expecting specific model name formats that didn't match the Groq model IDs.
+
+**Solution**:
+- Ensured `model_name` field uses exact Groq model strings
+- `'gemini-2.5-flash'`, `'qwen/qwen3-32b'`, `'openai/gpt-oss-120b'`, `'meta-llama/llama-4-maverick-17b-128e-instruct'`
+- Updated `saveModelScores` calls to use consistent naming
+
+**Lesson**: When integrating multiple external APIs, maintain exact naming conventions they use.
+
+#### 2. "Category not found" Warnings in Logs
+
+**Problem**: AI models would return categories that didn't exist in database, causing warnings.
+
+**Root Cause**: Hardcoded prompt had category definitions that didn't match database exactly.
+
+**Solution**:
+- Made prompts fully dynamic by fetching `description` column
+- AI can only score categories that exist in `bias_categories` table
+- Add/modify categories in database, prompts auto-update
+
+**Lesson**: Database-driven configurations are more maintainable than hardcoded values.
+
+#### 3. Qwen Returning `<think>` Tags in JSON
+
+**Problem**: Qwen model sometimes wraps responses in `<think>` XML tags, breaking JSON parsing.
+
+**Solution**:
+```typescript
+if (jsonText.includes('<think>')) {
+  jsonText = jsonText.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+}
+```
+
+**Lesson**: Different AI models have different output quirks. Always clean/normalize responses.
+
+#### 4. Article Extraction for User-Submitted URLs
+
+**Problem**: User had to manually enter title and source, which was error-prone and tedious.
+
+**Root Cause**: Original design assumed users would provide metadata, but `@extractus/article-extractor` already extracts everything.
+
+**Solution**:
+- Import and use `extract()` function in API route
+- Extract title, source, description, image automatically
+- Only require URL from user
+- Fallback to hostname if source not extracted
+
+**Lesson**: Use existing libraries fully - we were already importing article-extractor but not leveraging its metadata extraction.
+
+#### 5. Inconsistent Styling Across Pages
+
+**Problem**: AI model displays looked different on homepage, dashboard, and analyze page.
+
+**Root Cause**: Pages were built at different times with slightly different Tailwind classes.
+
+**Solution**:
+- Standardized to consistent pattern: `bg-{color}-100 dark:bg-{color}-900/30`
+- Same grid structure everywhere: `grid grid-cols-1 md:grid-cols-2 gap-4`
+- Unified padding (`p-5`), border-radius (`rounded-lg`), typography
+
+**Lesson**: Create design tokens or component library earlier to avoid consistency drift.
+
+### Design Decisions
+
+#### Why 4 Models Instead of 2?
+
+**Diversity of Training Data**:
+- Google Gemini: Trained on Google's data
+- Alibaba Qwen: Chinese company, different data sources
+- OpenAI GPT-OSS: OpenAI architecture, open-source
+- Meta Llama: Facebook's research team
+
+**Reduces Individual Model Bias**: More perspectives = more reliable consensus.
+
+**Still Within Free Tier**: All 4 models well under quota limits:
+| Model | Daily Limit | Usage (18 articles) | % Used |
+|-------|------------|---------------------|--------|
+| Gemini 2.5 Flash | 1,500/day | 18/day | 1.2% |
+| Qwen3 32B | 14,400/day | 18/day | 0.125% |
+| GPT-OSS 120B | 14,400/day | 18/day | 0.125% |
+| Llama 4 Maverick | 14,400/day | 18/day | 0.125% |
+
+#### Why Database-Driven Prompts?
+
+**Flexibility**: Can experiment with different bias categories without code changes.
+
+**Consistency**: AI can only score what exists in database (no mismatches).
+
+**Maintainability**: Business logic (which categories to score) lives in database, not codebase.
+
+**Future-Proof**: Easy to A/B test different category definitions.
+
+#### Why URL-Only Input?
+
+**UX Simplicity**: One field vs three fields = faster submission.
+
+**Data Quality**: `article-extractor` extracts accurately from HTML.
+
+**Additional Data**: Now captures description and image_url for richer display.
+
+**Error Reduction**: Users can't mistype title or source.
+
+#### Why Color-Coded Model Cards?
+
+**Visual Differentiation**: Instant recognition of which model produced which analysis.
+
+**Consistent Mental Model**: Blue always = Gemini, Orange always = Qwen, etc.
+
+**Professional Look**: Distinct but harmonious color palette.
+
+### Technical Concepts Demonstrated
+
+**Asynchronous Programming**
+- `Promise.all()` for 4-way parallel execution
+- Understanding that parallel doesn't increase timeout
+- Graceful degradation when some promises fail
+
+**Database-Driven Architecture**
+- Using database as source of truth for configuration
+- Dynamic SQL queries to build application behavior
+- Schema design that supports flexibility (model_name field)
+
+**Full-Stack Type Safety**
+- TypeScript interfaces updated across all layers
+- Return type changes cascade from backend → API → frontend
+- Optional chaining for nullable model results
+
+**API Integration Patterns**
+- Multiple provider integration (Google AI, Groq)
+- Response cleaning/normalization for different AI outputs
+- Rate limiting with delays between operations
+
+**Observability & Debugging**
+- Structured logging with consistent prefixes
+- Duration tracking for performance monitoring
+- Environment validation at startup
+
+### Thought Process & Architecture Reasoning
+
+**Problem-Solving Approach for 4-Model System**:
+1. **Identify constraint**: 5-minute Vercel timeout
+2. **Calculate timing**: 18 articles × 15s = 270s ✓
+3. **Verify parallel works**: Models independent, no data dependencies
+4. **Design return type**: `{ gemini, qwen, gptOss, llamaMaverick }`
+5. **Update all layers**: Backend → API → Frontend systematically
+6. **Add observability**: Logging for debugging production runs
+
+**Why Logging Matters**:
+- Production debugging is hard without good logs
+- Cron jobs run unattended - need visibility into failures
+- Performance metrics help identify optimization opportunities
+- Unique run IDs enable tracing across distributed logs
+
+### Files Created/Modified
+
+| File | Action | Changes |
+|------|--------|---------|
+| `lib/ai.ts` | Modified | 4-model parallel execution, dynamic prompts from DB, detailed logging |
+| `app/api/ai_analyze/route.ts` | Modified | URL-only input, auto-extract metadata, returns 4 model results |
+| `app/analyze/page.tsx` | Modified | Removed title/source fields, added detailed model results display |
+| `app/page.tsx` | Modified | Standardized AI Model Tendencies styling |
+| `app/dashboard/page.tsx` | Modified | Standardized AI Model Tendencies styling |
+| `app/api/cron/archive-articles/route.ts` | Modified | Added comprehensive logging with runId |
+| `scripts/initArticles.ts` | Modified | Added step-by-step logging with metrics |
+
+### Interview Talking Points
+
+1. **Multi-Model AI Architecture**:
+   - "I expanded from 2 to 4 AI models analyzing in parallel"
+   - "Each model has different training data, reducing systemic bias"
+   - "Promise.all() enables true parallelism without timeout issues"
+
+2. **Database-Driven Configuration**:
+   - "AI prompts are dynamically built from database content"
+   - "Adding a new bias category requires only a database insert, no code changes"
+   - "This is defensive programming - prevents hardcoded values from drifting"
+
+3. **Observability-First Design**:
+   - "Added comprehensive logging before issues occur"
+   - "Each cron run has unique ID for tracing"
+   - "Duration tracking identifies performance bottlenecks"
+
+4. **UX Simplification**:
+   - "Reduced analyze form from 3 fields to 1"
+   - "Used existing library for metadata extraction instead of asking users"
+   - "Better data quality from automated extraction vs manual entry"
+
+5. **Systematic Refactoring**:
+   - "Changed return types from innermost function outward"
+   - "TypeScript caught all required updates across full stack"
+   - "Maintained backward compatibility where possible"
+
+### What I Learned Today
+
+**Technical**:
+- Article extraction libraries provide more than just content (title, source, image, description)
+- Different AI models have different output quirks (`<think>` tags in Qwen)
+- Logging with unique IDs is essential for distributed system debugging
+- 4-way `Promise.all()` has same timeout as 2-way (parallel, not sequential)
+
+**Architectural**:
+- Database-driven prompts are more maintainable than hardcoded
+- UI consistency requires discipline across multiple pages
+- Observability should be built in from the start, not retrofitted
+
+**Debugging**:
+- "Category not found" warnings point to prompt/database mismatches
+- AI model responses need cleaning/normalization
+- Good logs make tomorrow's debugging much easier
+
+### Metrics & Performance
+
+**Before (2 Models)**:
+- Models: Gemini + Llama 3.3
+- AI API calls: 36/day (18 × 2)
+- Database rows: ~180/day (18 × 2 × ~5 categories)
+
+**After (4 Models)**:
+- Models: Gemini + Qwen + GPT-OSS + Llama Maverick
+- AI API calls: 72/day (18 × 4)
+- Database rows: ~360/day (18 × 4 × ~5 categories)
+
+**Key Insight**: 2× model diversity with same execution time (parallel).
+
+### Next Steps
+
+**Immediate**:
+- [ ] Monitor cron job logs tomorrow morning
+- [ ] Verify all 4 models produce valid scores
+- [ ] Check for any "Category not found" warnings (should be eliminated)
+- [ ] Verify article images appear on dashboard
+
+**Future Enhancements**:
+- [ ] Add model agreement/disagreement metrics
+- [ ] Visualize consensus vs divergent scores
+- [ ] Add average score display across all 4 models
+- [ ] Consider 5th model (Anthropic Claude) if needed
+
+**Polish**:
+- [ ] Add "Analyzed by 4 AI Models" badge on articles
+- [ ] Show model success/failure indicators
+- [ ] Add tooltips explaining each model's background

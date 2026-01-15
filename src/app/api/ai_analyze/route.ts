@@ -1,15 +1,16 @@
 /**
  * API Route: /api/ai_analyze
- * Analyzes articles for bias using Gemini 2.5 Flash
+ * Analyzes articles for bias using 4 AI models
  *
  * Handles both:
- * - User-submitted articles (inserts to database first with user_analyzed=true)
+ * - User-submitted articles (extracts metadata from URL, inserts to database with user_analyzed=true)
  * - Existing articles (analyzes directly with provided mediaId)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { analyzeArticle } from '@/lib/ai'
 import { createClient } from '@/utils/supabase/server'
+import { extract } from '@extractus/article-extractor'
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,14 +18,12 @@ export async function POST(request: NextRequest) {
 
     const mediaId = data.mediaId
     const url = data.url
-    const title = data.title
-    const source = data.source
     const supabase = await createClient()
 
-    // Validate required fields (mediaId is now optional)
-    if (!url || !title || !source) {
+    // Validate URL is provided
+    if (!url) {
       return NextResponse.json(
-        { error: 'Missing required fields: url, title, source' },
+        { error: 'Missing required field: url' },
         { status: 400 }
       )
     }
@@ -32,32 +31,62 @@ export async function POST(request: NextRequest) {
     // Handle user-submitted articles (no mediaId provided)
     let finalMediaId = mediaId
     let mediaRecord = null
+    let title = data.title
+    let source = data.source
 
     if (!mediaId) {
-      // Insert new article into database with user_analyzed flag
-      const { data: newMedia, error: insertError } = await supabase
-        .from('media')
-        .insert({
-          title,
-          url,
-          source,
-          media_type: 'article',
-          user_analyzed: true  // Mark as user submission
-        })
-        .select()
-        .single()
+      // Extract article metadata from URL
+      try {
+        const extractedArticle = await extract(url)
 
-      if (insertError || !newMedia) {
-        console.error('Error inserting article:', insertError)
+        if (!extractedArticle) {
+          return NextResponse.json(
+            { error: 'Could not extract article content from URL. Please check the URL is valid.' },
+            { status: 400 }
+          )
+        }
+
+        // Use extracted data, fallback to provided data or defaults
+        title = extractedArticle.title || title || 'Untitled Article'
+        source = extractedArticle.source || new URL(url).hostname.replace('www.', '')
+
+        const description = extractedArticle.description || null
+        const imageUrl = extractedArticle.image || null
+
+        // Insert new article into database with user_analyzed flag
+        const { data: newMedia, error: insertError } = await supabase
+          .from('media')
+          .insert({
+            title,
+            url,
+            source,
+            description,
+            image_url: imageUrl,
+            media_type: 'article',
+            user_analyzed: true  // Mark as user submission
+          })
+          .select()
+          .single()
+
+        if (insertError || !newMedia) {
+          console.error('Error inserting article:', insertError)
+          return NextResponse.json(
+            { error: 'Failed to save article to database' },
+            { status: 500 }
+          )
+        }
+
+        finalMediaId = newMedia.id
+        mediaRecord = newMedia
+        console.log(`Inserted user article: ${title} (ID: ${finalMediaId})`)
+
+      } catch (extractError) {
+        console.error('Error extracting article:', extractError)
         return NextResponse.json(
-          { error: 'Failed to save article to database' },
-          { status: 500 }
+          { error: 'Failed to extract article from URL. Please check the URL is accessible.' },
+          { status: 400 }
         )
       }
-
-      finalMediaId = newMedia.id
-      mediaRecord = newMedia
-      console.log(`Inserted user article: ${title} (ID: ${finalMediaId})`)
     }
 
     // Run AI analysis on the article

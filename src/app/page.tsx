@@ -40,6 +40,104 @@ export default async function Page() {
 
   const totalScores = (activeScores || 0) + (archivedScores || 0)
 
+  // Define the 4 models we track
+  const modelConfig: { [key: string]: { displayName: string; color: string } } = {
+    'gemini-2.5-flash': {
+      displayName: 'Google Gemini 2.5 Flash',
+      color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+    },
+    'qwen/qwen3-32b': {
+      displayName: 'Alibaba Qwen3 32B',
+      color: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-800'
+    },
+    'openai/gpt-oss-120b': {
+      displayName: 'OpenAI GPT-OSS 120B',
+      color: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800'
+    },
+    'meta-llama/llama-4-maverick-17b-128e-instruct': {
+      displayName: 'Meta Llama 4 Maverick',
+      color: 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+    }
+  }
+  const configuredModels = Object.keys(modelConfig)
+
+  // Fetch all AI scores from active table (with media_id and category)
+  const { data: activeScoresData } = await supabase
+    .from('ai_scores')
+    .select('score, model_name, media_id, bias_categories(name)')
+    .in('model_name', configuredModels)
+
+  // Fetch all AI scores from archived table
+  const { data: archivedScoresData } = await supabase
+    .from('archived_ai_scores')
+    .select('score, model_name, media_id, bias_categories(name)')
+    .in('model_name', configuredModels)
+
+  // Combine all scores
+  const allScoresData = [...(activeScoresData || []), ...(archivedScoresData || [])]
+
+  // Group scores by media_id to find articles with all 4 models
+  const scoresByMedia: { [mediaId: string]: { model: string; score: number; category: string }[] } = {}
+  allScoresData.forEach((score: any) => {
+    if (!score.media_id || !score.model_name) return
+    if (!scoresByMedia[score.media_id]) {
+      scoresByMedia[score.media_id] = []
+    }
+    scoresByMedia[score.media_id].push({
+      model: score.model_name,
+      score: score.score,
+      category: score.bias_categories?.name || ''
+    })
+  })
+
+  // Count articles with all 4 models analyzed
+  const articlesWithAll4Models = Object.entries(scoresByMedia).filter(([_, scores]) => {
+    const uniqueModels = new Set(scores.map(s => s.model))
+    return configuredModels.every(m => uniqueModels.has(m))
+  })
+  const completeAnalysisCount = articlesWithAll4Models.length
+
+  // Calculate model tendencies across all complete articles
+  const modelTendencies: { [model: string]: { [category: string]: { deviation: number; count: number } } } = {}
+  configuredModels.forEach(model => {
+    modelTendencies[model] = {}
+  })
+
+  articlesWithAll4Models.forEach(([mediaId, scores]) => {
+    // Get unique categories for this article
+    const categories = Array.from(new Set(scores.map(s => s.category).filter(Boolean)))
+
+    categories.forEach(category => {
+      const categoryScores = scores.filter(s => s.category === category)
+      if (categoryScores.length === 0) return
+
+      // Calculate average for this category
+      const avg = categoryScores.reduce((sum, s) => sum + s.score, 0) / categoryScores.length
+
+      // Calculate each model's deviation
+      categoryScores.forEach(score => {
+        if (!modelTendencies[score.model]) return
+        const deviation = score.score - avg
+
+        if (!modelTendencies[score.model][category]) {
+          modelTendencies[score.model][category] = { deviation: 0, count: 0 }
+        }
+        modelTendencies[score.model][category].deviation += deviation
+        modelTendencies[score.model][category].count += 1
+      })
+    })
+  })
+
+  // Calculate average deviations per model
+  const modelAvgDeviations = configuredModels.map(model => {
+    const categories = modelTendencies[model]
+    const categoryDeviations = Object.entries(categories).map(([category, data]) => ({
+      category,
+      avgDeviation: data.count > 0 ? data.deviation / data.count : 0
+    }))
+    return { model, categoryDeviations }
+  })
+
   // Fetch bias categories for display
   const { data: biasCategories } = await supabase
     .from('bias_categories')
@@ -310,6 +408,54 @@ export default async function Page() {
           </div>
         </div>
       </section>
+
+      {/* AI Model Tendencies Section */}
+      {completeAnalysisCount > 0 && (
+        <section className="border-b border-stone-200 dark:border-stone-800 transition-colors duration-300">
+          <div className="max-w-6xl mx-auto px-6 py-20">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl font-serif font-bold text-stone-900 dark:text-stone-100 mb-4 transition-colors duration-300">
+                AI Model Tendencies
+              </h2>
+              <p className="text-stone-600 dark:text-stone-400 text-lg transition-colors duration-300">
+                How each AI model tends to score compared to the 4-model average across {completeAnalysisCount} fully analyzed article{completeAnalysisCount !== 1 ? 's' : ''}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {modelAvgDeviations.map(({ model, categoryDeviations }) => (
+                <div key={model} className={`border rounded-lg p-5 ${modelConfig[model].color}`}>
+                  <h4 className="text-lg font-semibold mb-4">
+                    {modelConfig[model].displayName}
+                  </h4>
+                  <div className="grid grid-cols-3 gap-4">
+                    {categoryDeviations.map(({ category, avgDeviation }) => (
+                      <div key={category} className="text-center">
+                        <p className="text-xs opacity-70 capitalize mb-1">{category}</p>
+                        <p className={`text-lg font-bold ${
+                          avgDeviation > 0.05 ? 'text-blue-700 dark:text-blue-300' :
+                          avgDeviation < -0.05 ? 'text-red-700 dark:text-red-300' :
+                          'opacity-60'
+                        }`}>
+                          {avgDeviation > 0 ? '+' : ''}{(avgDeviation * 100).toFixed(0)}%
+                        </p>
+                        <p className="text-xs opacity-60">
+                          {Math.abs(avgDeviation) < 0.05 ? 'neutral' :
+                            avgDeviation > 0 ? 'higher' : 'lower'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs text-stone-500 dark:text-stone-500 mt-8 italic text-center">
+              Percentage shows how much each model deviates from the 4-model consensus. Patterns may indicate model-specific tendencies in bias detection.
+            </p>
+          </div>
+        </section>
+      )}
 
       {/* Mission Statement / CTA Section */}
       <section>

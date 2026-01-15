@@ -15,50 +15,79 @@ import { runInitArticles } from '@/scripts/initArticles'
  */
 export async function GET(request: NextRequest) {
   const startTime = Date.now()
+  const runId = `cron-${Date.now()}`
+
+  console.log('='.repeat(80))
+  console.log(`[Cron ${runId}] ========== CRON JOB STARTED ==========`)
+  console.log(`[Cron ${runId}] Timestamp: ${new Date().toISOString()}`)
+  console.log(`[Cron ${runId}] Environment check:`)
+  console.log(`[Cron ${runId}]   - CRON_SECRET exists: ${!!process.env.CRON_SECRET}`)
+  console.log(`[Cron ${runId}]   - GNEWS_API_KEY exists: ${!!process.env.GNEWS_API_KEY}`)
+  console.log(`[Cron ${runId}]   - GEMINI_API_KEY exists: ${!!process.env.GEMINI_API_KEY}`)
+  console.log(`[Cron ${runId}]   - GROQ_API_KEY exists: ${!!process.env.GROQ_API_KEY}`)
+  console.log(`[Cron ${runId}]   - SUPABASE_URL exists: ${!!process.env.NEXT_PUBLIC_SUPABASE_URL}`)
+  console.log('='.repeat(80))
 
   // Verify Vercel Cron authorization
   const authHeader = request.headers.get('authorization')
   const expectedAuth = `Bearer ${process.env.CRON_SECRET}`
 
   if (authHeader !== expectedAuth) {
-    console.error('[Cron] Unauthorized access attempt')
+    console.error(`[Cron ${runId}] ❌ UNAUTHORIZED access attempt`)
+    console.error(`[Cron ${runId}] Auth header present: ${!!authHeader}`)
     return NextResponse.json(
       { error: 'Unauthorized' },
       { status: 401 }
     )
   }
 
+  console.log(`[Cron ${runId}] ✓ Authorization verified`)
+
   try {
     // Step 1: Archive old articles
-    console.log('[Cron] Starting archival:', new Date().toISOString())
+    console.log(`[Cron ${runId}] `)
+    console.log(`[Cron ${runId}] ========== STEP 1: ARCHIVING OLD ARTICLES ==========`)
+    console.log(`[Cron ${runId}] Starting archival: ${new Date().toISOString()}`)
 
     const archiveResult = await archiveOldArticles()
 
     const archiveDuration = Date.now() - startTime
-    console.log('[Cron] Archival complete in', archiveDuration, 'ms')
-    console.log('[Cron] Archival results:', archiveResult)
+    console.log(`[Cron ${runId}] ✓ Archival complete in ${archiveDuration}ms`)
+    console.log(`[Cron ${runId}] Archival results:`)
+    console.log(`[Cron ${runId}]   - Articles processed: ${archiveResult.articlesProcessed}`)
+    console.log(`[Cron ${runId}]   - Articles archived: ${archiveResult.articlesArchived}`)
+    console.log(`[Cron ${runId}]   - Articles failed: ${archiveResult.articlesFailed}`)
+    console.log(`[Cron ${runId}]   - AI scores archived: ${archiveResult.aiScoresArchived}`)
+    if (archiveResult.errors.length > 0) {
+      console.log(`[Cron ${runId}]   - Errors: ${JSON.stringify(archiveResult.errors)}`)
+    }
 
     // Check if archival had any articles to process
     if (archiveResult.articlesProcessed === 0) {
-      console.log('[Cron] No articles to archive, proceeding to fetch')
+      console.log(`[Cron ${runId}] ℹ No articles to archive, proceeding to fetch`)
     }
 
     // Step 2: Fetch and analyze new articles
-    // Always run fetch, even if archival had partial failures or no articles
-    console.log('[Cron] Starting article fetch:', new Date().toISOString())
+    console.log(`[Cron ${runId}] `)
+    console.log(`[Cron ${runId}] ========== STEP 2: FETCHING & ANALYZING NEW ARTICLES ==========`)
+    console.log(`[Cron ${runId}] Starting article fetch: ${new Date().toISOString()}`)
     const fetchStartTime = Date.now()
     let fetchResult
 
     try {
       fetchResult = await runInitArticles()
       const fetchDuration = Date.now() - fetchStartTime
-      console.log('[Cron] Fetch complete in', fetchDuration, 'ms')
-      console.log('[Cron] Fetch results:', fetchResult)
+      console.log(`[Cron ${runId}] ✓ Fetch & analysis complete in ${fetchDuration}ms (${(fetchDuration / 1000 / 60).toFixed(2)} minutes)`)
+      console.log(`[Cron ${runId}] Fetch results:`)
+      console.log(`[Cron ${runId}]   - Articles fetched: ${fetchResult.articlesFetched}`)
+      console.log(`[Cron ${runId}]   - Articles analyzed: ${fetchResult.articlesAnalyzed}`)
+      console.log(`[Cron ${runId}]   - Success: ${fetchResult.success}`)
     } catch (fetchError) {
       const fetchDuration = Date.now() - fetchStartTime
       const fetchErrorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error'
-      console.error('[Cron] Fetch failed:', fetchErrorMessage)
-      console.error('[Cron] Fetch error details:', fetchError)
+      console.error(`[Cron ${runId}] ❌ Fetch FAILED after ${fetchDuration}ms`)
+      console.error(`[Cron ${runId}] Error message: ${fetchErrorMessage}`)
+      console.error(`[Cron ${runId}] Error stack:`, fetchError)
 
       fetchResult = {
         success: false,
@@ -70,8 +99,15 @@ export async function GET(request: NextRequest) {
 
     const totalDuration = Date.now() - startTime
 
+    console.log(`[Cron ${runId}] `)
+    console.log(`[Cron ${runId}] ========== CRON JOB COMPLETED ==========`)
+    console.log(`[Cron ${runId}] Total duration: ${totalDuration}ms (${(totalDuration / 1000 / 60).toFixed(2)} minutes)`)
+    console.log(`[Cron ${runId}] End timestamp: ${new Date().toISOString()}`)
+    console.log('='.repeat(80))
+
     return NextResponse.json({
       success: true,
+      runId,
       timestamp: new Date().toISOString(),
       duration: totalDuration,
       archival: {
@@ -87,13 +123,20 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const duration = Date.now() - startTime
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    const errorStack = error instanceof Error ? error.stack : 'No stack trace'
 
-    console.error('[Cron] Critical failure:', errorMessage)
-    console.error('[Cron] Error details:', error)
+    console.error(`[Cron ${runId}] `)
+    console.error(`[Cron ${runId}] ========== CRON JOB CRITICAL FAILURE ==========`)
+    console.error(`[Cron ${runId}] ❌ Critical failure after ${duration}ms`)
+    console.error(`[Cron ${runId}] Error message: ${errorMessage}`)
+    console.error(`[Cron ${runId}] Error stack: ${errorStack}`)
+    console.error(`[Cron ${runId}] Full error object:`, error)
+    console.error('='.repeat(80))
 
     return NextResponse.json(
       {
         error: 'Cron job failed',
+        runId,
         message: errorMessage,
         timestamp: new Date().toISOString(),
         duration

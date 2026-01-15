@@ -16,6 +16,7 @@ interface Article {
   ai_scores: {
     score: number
     explanation: string
+    model_name: string | null
     bias_categories: {
       name: string
     } | null
@@ -54,6 +55,7 @@ export default function DashboardPage() {
             ai_scores (
               score,
               explanation,
+              model_name,
               bias_categories (
                 name
               )
@@ -294,6 +296,146 @@ export default function DashboardPage() {
                 Each dot represents an article's score. Yellow line shows the average across all your articles.
               </p>
             </div>
+
+            {/* AI Model Tendencies */}
+            {articles.length >= 1 && (() => {
+              // Define the 4 models we want to show (exact names and display info)
+              const modelConfig: { [key: string]: { displayName: string; color: string } } = {
+                'gemini-2.5-flash': {
+                  displayName: 'Google Gemini 2.5 Flash',
+                  color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                },
+                'qwen/qwen3-32b': {
+                  displayName: 'Alibaba Qwen3 32B',
+                  color: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-800'
+                },
+                'openai/gpt-oss-120b': {
+                  displayName: 'OpenAI GPT-OSS 120B',
+                  color: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800'
+                },
+                'meta-llama/llama-4-maverick-17b-128e-instruct': {
+                  displayName: 'Meta Llama 4 Maverick',
+                  color: 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                }
+              }
+
+              const modelOrder = Object.keys(modelConfig)
+
+              // Get all unique models from articles (only show configured models)
+              const allModels = Array.from(new Set(
+                articles.flatMap(a => a.ai_scores?.map(s => s.model_name) || []).filter(Boolean)
+              )).filter(model => modelConfig[model as string]) as string[]
+
+              if (allModels.length < 2) return null
+
+              // Model display names - exact matching
+              const getModelDisplayName = (modelName: string) => {
+                return modelConfig[modelName]?.displayName || modelName
+              }
+
+              // Model badge colors - exact matching
+              const getModelBadgeColor = (modelName: string) => {
+                return modelConfig[modelName]?.color || 'bg-gray-100 dark:bg-gray-900/30 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-800'
+              }
+
+              // Calculate model tendencies across all articles
+              const modelTendencies: { [model: string]: { [category: string]: { deviation: number; count: number } } } = {}
+
+              allModels.forEach(model => {
+                modelTendencies[model] = {}
+              })
+
+              // For each article, calculate average and then each model's deviation
+              articles.forEach(article => {
+                if (!article.ai_scores || article.ai_scores.length === 0) return
+
+                // Get unique categories for this article
+                const articleCategories = Array.from(new Set(
+                  article.ai_scores.map(s => s.bias_categories?.name).filter(Boolean)
+                )) as string[]
+
+                articleCategories.forEach(category => {
+                  // Get all scores for this category
+                  const categoryScores = article.ai_scores.filter(s => s.bias_categories?.name === category)
+                  if (categoryScores.length === 0) return
+
+                  // Calculate average for this category on this article
+                  const avg = categoryScores.reduce((sum, s) => sum + s.score, 0) / categoryScores.length
+
+                  // Calculate each model's deviation from average
+                  categoryScores.forEach(score => {
+                    const model = score.model_name
+                    if (!model || !modelTendencies[model]) return // Skip if model not in our config
+
+                    const deviation = score.score - avg
+
+                    if (!modelTendencies[model][category]) {
+                      modelTendencies[model][category] = { deviation: 0, count: 0 }
+                    }
+                    modelTendencies[model][category].deviation += deviation
+                    modelTendencies[model][category].count += 1
+                  })
+                })
+              })
+
+              // Calculate average deviations and sort by model order
+              const modelAvgDeviations = Object.entries(modelTendencies)
+                .map(([model, categories]) => {
+                  const categoryDeviations = Object.entries(categories).map(([category, data]) => ({
+                    category,
+                    avgDeviation: data.count > 0 ? data.deviation / data.count : 0
+                  }))
+                  return { model, categoryDeviations }
+                })
+                .sort((a, b) => {
+                  const aIndex = modelOrder.findIndex(m => a.model.includes(m.split('/').pop() || m))
+                  const bIndex = modelOrder.findIndex(m => b.model.includes(m.split('/').pop() || m))
+                  return aIndex - bIndex
+                })
+
+              return (
+                <div className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-lg p-6 transition-colors duration-300 mt-6">
+                  <h3 className="text-2xl font-serif font-bold text-stone-900 dark:text-stone-100 mb-2 transition-colors duration-300">
+                    AI Model Tendencies
+                  </h3>
+                  <p className="text-sm text-stone-600 dark:text-stone-400 mb-6">
+                    How each AI model tends to score compared to the average across your {articles.length} analyzed article{articles.length !== 1 ? 's' : ''}
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {modelAvgDeviations.map(({ model, categoryDeviations }) => (
+                      <div key={model} className={`border rounded-lg p-5 ${getModelBadgeColor(model)}`}>
+                        <h4 className="text-lg font-semibold mb-4">
+                          {getModelDisplayName(model)}
+                        </h4>
+                        <div className="grid grid-cols-3 gap-4">
+                          {categoryDeviations.map(({ category, avgDeviation }) => (
+                            <div key={category} className="text-center">
+                              <p className="text-xs opacity-70 capitalize mb-1">{category}</p>
+                              <p className={`text-lg font-bold ${
+                                avgDeviation > 0.05 ? 'text-blue-700 dark:text-blue-300' :
+                                avgDeviation < -0.05 ? 'text-red-700 dark:text-red-300' :
+                                'opacity-60'
+                              }`}>
+                                {avgDeviation > 0 ? '+' : ''}{(avgDeviation * 100).toFixed(0)}%
+                              </p>
+                              <p className="text-xs opacity-60">
+                                {Math.abs(avgDeviation) < 0.05 ? 'neutral' :
+                                  avgDeviation > 0 ? 'higher' : 'lower'}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="text-xs text-stone-500 dark:text-stone-500 mt-6 italic text-center">
+                    Percentage shows how much each model deviates from the 4-model average. Patterns may indicate model-specific biases.
+                  </p>
+                </div>
+              )
+            })()}
           </div>
         )}
 
@@ -370,16 +512,14 @@ export default function DashboardPage() {
                     />
                   )}
 
-                  {/* Article title */}
+                  {/* Article title - links to detail page */}
                   <h3 className="text-lg font-serif font-semibold text-stone-900 dark:text-stone-100 mb-2 line-clamp-2">
-                    <a
-                      href={article.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <Link
+                      href={`/articles/${article.id}`}
                       className="hover:text-stone-600 dark:hover:text-stone-400 transition-colors"
                     >
                       {article.title}
-                    </a>
+                    </Link>
                   </h3>
 
                   {/* Description */}
