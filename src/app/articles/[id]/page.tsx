@@ -311,7 +311,7 @@ export default async function ArticleDetailPage({ params }: PageProps) {
                       </p>
                     </div>
 
-                    <div className="grid md:grid-cols-2 gap-6">
+                    <div className="space-y-8">
                       {Array.from(modelScores.entries()).map(([modelName, scores]) => (
                         <div key={modelName} className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-lg p-6 transition-colors duration-300">
                           {/* Model Header */}
