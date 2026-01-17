@@ -1074,3 +1074,397 @@ console.log(`[Groq:qwen] ❌ Analysis FAILED: Rate limit exceeded`)
 ### Key Principle
 
 "Prefer flexibility and observability over premature optimization. Storage is cheap, debugging production issues is expensive."
+
+---
+
+## Content Truncation for Token Limit Management
+
+### Date: January 17, 2026
+
+### Decision: Implement Smart Truncation for Groq Models Only
+
+**Problem**: Long articles (23,911+ chars) exceeded Groq's token limits, causing 413 errors:
+- Qwen3-32B: 6,000 TPM limit, requested 10,873 tokens
+- GPT-OSS-120B: 8,000 TPM limit, requested 9,066 tokens
+- Llama Maverick: 6,000 TPM limit, requested 8,950 tokens
+
+**Root Cause**: Article content + prompt instructions exceeded API token-per-minute (TPM) limits on Groq's free tier.
+
+### Implementation
+
+**Truncation Function**:
+```typescript
+function truncateContent(content: string, maxChars: number): string {
+  if (content.length <= maxChars) return content
+
+  let truncated = content.substring(0, maxChars)
+
+  // Smart sentence boundary detection
+  const lastSentenceEnd = Math.max(
+    truncated.lastIndexOf('. '),
+    truncated.lastIndexOf('! '),
+    truncated.lastIndexOf('? ')
+  )
+
+  // Only use sentence boundary if found within last 20%
+  if (lastSentenceEnd > maxChars * 0.8) {
+    truncated = truncated.substring(0, lastSentenceEnd + 1)
+  }
+
+  return truncated
+}
+```
+
+**Applied to Groq models only**:
+- MAX_CONTENT_CHARS = 12,000 (~3,000 tokens)
+- Gemini unchanged (1M token context window)
+
+### Token-to-Character Estimation
+
+**Conservative Approach**: ~4 characters per token
+
+**Calculation for 12,000 char limit**:
+- Content: 12,000 chars ≈ 3,000 tokens
+- Prompt: ~1,000 tokens (category instructions, formatting)
+- Response: ~1,500 tokens (scores + explanations)
+- **Total**: ~5,500 tokens per request
+
+**Safety Margins**:
+- Qwen/Llama (6,000 TPM): 8% buffer
+- GPT-OSS (8,000 TPM): 31% buffer
+
+### Design Rationale: Model-Specific Truncation
+
+**Why Not Truncate All Models Uniformly?**
+
+**Diversity over consistency**:
+1. **Gemini's Strength**: 1M token window enables full-content analysis
+2. **Groq Models**: Provide "quick scan" perspective on key sections
+3. **Ensemble Value**: Different input lengths don't invalidate averaging
+4. **Real-World Parallel**: Like having one comprehensive review + three quick opinions
+
+**Alternative Considered**: Truncate all to same length for "fairness"
+**Rejected Because**:
+- Loses Gemini's key advantage
+- No evidence that identical input improves ensemble accuracy
+- Different approaches complement each other
+
+### Sentence Boundary Algorithm
+
+**Goal**: Avoid mid-sentence cuts that could mislead AI
+
+**Strategy**:
+1. Find last occurrence of `. `, `! `, or `? ` in truncated text
+2. Only use if found within last 20% of limit
+3. Otherwise, use character-based truncation
+
+**Why 20% Threshold?**:
+- Prevents excessive content loss (e.g., 12k → 3k if early sentence)
+- Balances coherence vs completeness
+- Example: 12,000 char limit → only use sentence if found after 9,600 chars
+
+### Results
+
+**Test Case**: 23,911 character article
+- **Gemini**: 23,911 chars (full analysis)
+- **Qwen**: 9,904 chars (sentence boundary at ~10k)
+- **GPT-OSS**: 9,904 chars (same sentence endpoint)
+- **Llama**: 9,904 chars (same sentence endpoint)
+- **Outcome**: All 4 models succeeded ✓
+
+### Logging & Transparency
+
+**User-Facing**: No indication of truncation (seamless experience)
+
+**Developer Logs**:
+```typescript
+console.log(`[Groq:qwen3-32b] Original content length: 23911 chars`)
+console.log(`[Groq:qwen3-32b] ⚠️ Content truncated from 23911 to 9904 chars`)
+console.log(`[Groq:qwen3-32b] Analysis content length: 9904 chars`)
+```
+
+**Benefits**:
+- Debug content-length issues quickly
+- Track truncation frequency
+- Verify sentence boundary detection
+
+### Trade-Offs
+
+| Option | Pros | Cons | Decision |
+|--------|------|------|----------|
+| **Truncate Groq only** | Preserves Gemini's strength | Inconsistent inputs | ✅ Chosen |
+| **Truncate all models** | Fairness, consistency | Wastes Gemini capability | ❌ Rejected |
+| **Upgrade to paid tier** | No truncation needed | Ongoing costs | ❌ Rejected (free tier sufficient) |
+| **Fail on long articles** | Simple implementation | Poor UX | ❌ Rejected |
+
+### Interview Talking Points
+
+1. **Problem-Solving Under Constraints**:
+   - "Diagnosed 413 errors by analyzing actual token counts vs limits"
+   - "Implemented smart truncation with sentence boundaries for coherence"
+   - "Model-specific optimization preserves each model's strengths"
+
+2. **Statistical Validity**:
+   - "Different input lengths don't invalidate ensemble averaging"
+   - "Diversity of approaches (full-context + quick-scan) adds value"
+   - "Similar to how financial analysts use both detailed reports and executive summaries"
+
+3. **Defensive Programming**:
+   - "Conservative token estimation (~4 chars/token) prevents edge cases"
+   - "20% threshold balances coherence vs completeness automatically"
+   - "Graceful degradation: truncate vs fail"
+
+### Lessons Learned
+
+**Technical**:
+- Token limits vary drastically by provider (6K vs 1M)
+- Sentence detection doesn't require regex (just check for punctuation + space)
+- Character-to-token estimation should be conservative (4:1 safer than 3.5:1)
+
+**Architectural**:
+- Model-specific optimizations are valid in ensemble systems
+- Truncation strategy should match model capabilities
+- Logging is critical for debugging content-length issues
+
+---
+
+## Global Inter-Model Disagreement Metric
+
+### Date: January 17, 2026
+
+### Decision: Add Quantitative Measure of AI Model Consensus
+
+**Problem**: Users see 4 different AI model scores but don't know if models agree or disagree. No global metric quantifying ensemble reliability.
+
+**Solution**: Calculate and display average inter-model disagreement across all analyzed articles.
+
+### Mathematical Definition
+
+**Mean Absolute Deviation (MAD) from Ensemble Mean**:
+
+For each article-category pair:
+1. Calculate 4-model average (ensemble mean)
+2. For each model, measure: |score - ensemble_mean|
+3. Average those 4 deviations
+4. Average across all article-category pairs
+5. Convert to percentage (0-100 scale)
+
+**Example**:
+```
+Article: "Climate Policy Debate"
+Category: Political
+
+Model Scores:
+- Gemini:  0.6
+- Qwen:    0.4
+- GPT-OSS: 0.5
+- Llama:   0.3
+
+Ensemble Mean: (0.6 + 0.4 + 0.5 + 0.3) / 4 = 0.45
+
+Deviations:
+- |0.6 - 0.45| = 0.15
+- |0.4 - 0.45| = 0.05
+- |0.5 - 0.45| = 0.05
+- |0.3 - 0.45| = 0.15
+
+Average Deviation: (0.15 + 0.05 + 0.05 + 0.15) / 4 = 0.10
+As percentage: 10%
+```
+
+### Implementation
+
+```typescript
+let totalDisagreement = 0
+let disagreementCount = 0
+
+articlesWithAll4Models.forEach(([mediaId, scores]) => {
+  const categories = Array.from(new Set(scores.map(s => s.category).filter(Boolean)))
+
+  categories.forEach(category => {
+    const categoryScores = scores.filter(s => s.category === category)
+    if (categoryScores.length < 4) return  // Skip incomplete
+
+    const scoreValues = categoryScores.map(s => s.score)
+    const ensembleMean = scoreValues.reduce((sum, s) => sum + s, 0) / scoreValues.length
+
+    // Calculate average absolute deviation
+    const avgDeviation = scoreValues.reduce((sum, s) => sum + Math.abs(s - ensembleMean), 0) / scoreValues.length
+
+    totalDisagreement += avgDeviation
+    disagreementCount++
+  })
+})
+
+const globalInterModelDisagreement = disagreementCount > 0
+  ? (totalDisagreement / disagreementCount) * 100
+  : 0
+```
+
+### Interpretation
+
+**13.6% Disagreement Means**:
+- On average, each model deviates 0.136 from the group average
+- On a -1 to +1 scale (range of 2), this is 6.8% of the full range
+- **Low disagreement** = high confidence in ensemble scores
+- **High disagreement** = models have divergent perspectives
+
+**Benchmarks**:
+- **< 10%**: Strong consensus
+- **10-20%**: Moderate agreement (expected for subjective analysis)
+- **> 30%**: High disagreement (investigate why)
+
+### Data Inclusion
+
+**Only Articles with All 4 Models**:
+- Ensures fair comparison (same denominators)
+- Excludes partial analyses
+- Currently: 19 fully analyzed articles
+
+**Includes Both Active & Archived**:
+- Combines `ai_scores` and `archived_ai_scores` tables
+- Larger dataset = more reliable statistic
+- Historical data improves metric stability
+
+### UI Display
+
+**Homepage Placement**: Prominent hero stat above variance reduction
+
+```tsx
+<div className="bg-gradient-to-br from-blue-50 to-indigo-50 ...">
+  <div className="text-center">
+    <p className="text-6xl font-bold text-blue-700 dark:text-blue-400">
+      {globalInterModelDisagreement.toFixed(1)}%
+    </p>
+    <p className="text-lg uppercase">
+      Global Inter-Model Disagreement
+    </p>
+    <p className="text-sm">
+      On average, how far apart different LLMs score the same article
+    </p>
+  </div>
+</div>
+```
+
+**Design Rationale**:
+- Large, readable number (resume-friendly)
+- Plain English explanation
+- Blue gradient (distinct from green variance reduction)
+
+### Resume Value
+
+**One-Sentence Pitch**:
+"Implemented 4-model ensemble AI system with 13.6% inter-model disagreement, demonstrating statistical rigor in reducing individual model bias."
+
+**Technical Depth**:
+- Shows understanding of ensemble methods
+- Quantifies system reliability
+- Demonstrates statistical thinking
+
+### Relationship to Variance Reduction
+
+**Complementary Metrics**:
+1. **Variance Reduction (28.3%)**:
+   - Measures improvement over single-model approach
+   - "Ensemble is 28% more stable than individual models"
+
+2. **Inter-Model Disagreement (13.6%)**:
+   - Measures consensus among models
+   - "Models typically differ by 13.6% from group average"
+
+**Together They Tell**:
+- Ensemble reduces variance (good)
+- Models still have meaningful diversity (also good)
+- Not artificially forcing agreement
+
+### Future Enhancements
+
+**Per-Article Disagreement**:
+- Show disagreement score on each article detail page
+- "High disagreement (28%) - models had divergent views"
+- Helps users assess confidence in specific analyses
+
+**Per-Category Disagreement**:
+- Which categories have highest/lowest agreement?
+- "Political: 8% disagreement (strong consensus)"
+- "Sensationalism: 22% disagreement (subjective)"
+
+**Trend Over Time**:
+- Track if disagreement increases/decreases as dataset grows
+- Indicator of model calibration stability
+
+### Interview Talking Points
+
+1. **Statistical Rigor**:
+   - "Added Mean Absolute Deviation as quantitative reliability metric"
+   - "13.6% disagreement is healthy - shows genuine diversity, not forced consensus"
+   - "Calculated across 19 fully analyzed articles with all 4 models"
+
+2. **User Value**:
+   - "Gives users confidence in ensemble scores"
+   - "Low disagreement = trust the average; high disagreement = investigate further"
+   - "Transparent about AI limitations"
+
+3. **Data Science Thinking**:
+   - "Ensemble methods are standard in ML for reducing individual model bias"
+   - "Measuring disagreement validates that ensemble is working as intended"
+   - "This metric could inform model weight adjustments in future"
+
+---
+
+## Cron Job Optimization: Wait Time Reduction
+
+### Date: January 17, 2026
+
+### Decision: Reduce Inter-Article Wait from 15s to 5s
+
+**Problem**: 15-second wait between articles was overly conservative. With 18 articles, this added 4.5 unnecessary minutes to cron job execution.
+
+**Analysis**:
+
+**Rate Limit**: Groq allows 5 requests/minute per model
+
+**Our Usage with 5s Wait**:
+```
+Time per article: ~5s wait + 10-15s analysis = 15-17s total
+Articles per minute: 60s / 17s ≈ 3.5 articles
+Requests per minute per model: 3.5 requests
+Safety margin: 1.5 requests/minute (30%)
+```
+
+**Previous with 15s Wait**:
+```
+Time per article: 15s wait + 10-15s analysis = 25-30s total
+Articles per minute: 60s / 27.5s ≈ 2.2 articles
+Requests per minute per model: 2.2 requests
+Safety margin: 2.8 requests/minute (56%)
+```
+
+**Decision**: 30% safety margin is sufficient. 56% was wasteful.
+
+### Time Savings
+
+**Before**: 18 articles × 27.5s avg = 495s (8.25 min)
+**After**: 18 articles × 17s avg = 306s (5.1 min)
+**Saved**: 189s (3.15 min per cron run)
+
+**Annual Impact**:
+- 365 cron runs × 3.15 min saved = 1,149 min (19.2 hours)
+- Not critical, but demonstrates optimization thinking
+
+### Risk Assessment
+
+**Scenario: API Call Takes Longer Than Expected**
+
+If Gemini takes 20s instead of 10s:
+```
+Time per article: 5s wait + 20s analysis = 25s
+Articles per minute: 2.4
+Requests per minute: 2.4 < 5 limit ✓ Still safe
+```
+
+**Worst Case**: Even if all models max out at 25s, still under rate limit.
+
+### Interview Talking Point
+
+"I analyzed rate limit constraints mathematically: 5s wait + 10s analysis = 15s per article ≈ 4 requests/min per model, safely under the 5 req/min limit. This reduced cron job time from 8.25 to 5.1 minutes while maintaining safety margins. I prioritize data-driven optimization over arbitrary buffers."

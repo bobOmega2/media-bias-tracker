@@ -171,6 +171,32 @@ let ensembleMeans: number[] = []           // 4-model averages for each article-
     ? ((singleModelVariance - ensembleVariance) / singleModelVariance) * 100
     : 0
 
+  // ========== GLOBAL INTER-MODEL DISAGREEMENT ==========
+  // Calculate average disagreement between models for the same article-category
+  let totalDisagreement = 0
+  let disagreementCount = 0
+
+  articlesWithAll4Models.forEach(([mediaId, scores]) => {
+    const categories = Array.from(new Set(scores.map(s => s.category).filter(Boolean)))
+
+    categories.forEach(category => {
+      const categoryScores = scores.filter(s => s.category === category)
+      if (categoryScores.length < configuredModels.length) return
+
+      const scoreValues = categoryScores.map(s => s.score)
+      const ensembleMean = scoreValues.reduce((sum, s) => sum + s, 0) / scoreValues.length
+
+      // Calculate average absolute deviation from ensemble mean
+      const avgDeviation = scoreValues.reduce((sum, s) => sum + Math.abs(s - ensembleMean), 0) / scoreValues.length
+      totalDisagreement += avgDeviation
+      disagreementCount++
+    })
+  })
+
+  const globalInterModelDisagreement = disagreementCount > 0
+    ? (totalDisagreement / disagreementCount) * 100 // Convert to percentage
+    : 0
+
   // Fetch bias categories for display
   const { data: biasCategories } = await supabase
     .from('bias_categories')
@@ -454,6 +480,21 @@ let ensembleMeans: number[] = []           // 4-model averages for each article-
                 How each AI model tends to score compared to the 4-model average across {completeAnalysisCount} fully analyzed article{completeAnalysisCount !== 1 ? 's' : ''}
               </p>
             </div>
+
+         {/* Global Inter-Model Disagreement Hero Stat */}
+<div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 rounded-xl p-8 border-2 border-blue-200 dark:border-blue-800 mb-6 transition-colors duration-300">
+  <div className="text-center">
+    <p className="text-6xl font-bold text-blue-700 dark:text-blue-400 mb-3 transition-colors duration-300">
+      {globalInterModelDisagreement.toFixed(1)}%
+    </p>
+    <p className="text-lg uppercase tracking-wide text-blue-800 dark:text-blue-300 font-semibold mb-2 transition-colors duration-300">
+      Global Inter-Model Disagreement
+    </p>
+    <p className="text-sm text-blue-700 dark:text-blue-400 max-w-md mx-auto transition-colors duration-300">
+      On average, how far apart different LLMs score the same article across <strong>{completeAnalysisCount}</strong> fully analyzed article{completeAnalysisCount !== 1 ? 's' : ''}
+    </p>
+  </div>
+</div>
 
          {/* Variance Reduction Hero Stat */}
 <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 rounded-xl p-8 border-2 border-emerald-200 dark:border-emerald-800 mb-10 transition-colors duration-300">

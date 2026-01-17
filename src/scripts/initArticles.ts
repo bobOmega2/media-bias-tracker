@@ -57,7 +57,7 @@ export async function runInitArticles() {
     console.log('[InitArticles] --- Step 2: Selecting articles for analysis ---')
 
     // Analyze first 18 articles (fits within 5-minute timeout with 15s delays)
-    const testArticles = insertedArticles.slice(0, 18)
+    const testArticles = insertedArticles.slice(0, 15)
     console.log(`[InitArticles] Selected ${testArticles.length} articles for analysis`)
     console.log(`[InitArticles] Estimated analysis time: ${((testArticles.length * 15) / 60).toFixed(1)} minutes`)
 

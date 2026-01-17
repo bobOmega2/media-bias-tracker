@@ -299,6 +299,33 @@ ${exampleScores}
   return null
 }
 
+/**
+ * Truncate content to fit within token limits while preserving meaning
+ * Uses character-based estimation: ~4 chars per token
+ */
+function truncateContent(content: string, maxChars: number): string {
+  if (content.length <= maxChars) {
+    return content
+  }
+
+  // Truncate to max length
+  let truncated = content.substring(0, maxChars)
+
+  // Try to end at a sentence boundary (., !, ?)
+  const lastSentenceEnd = Math.max(
+    truncated.lastIndexOf('. '),
+    truncated.lastIndexOf('! '),
+    truncated.lastIndexOf('? ')
+  )
+
+  if (lastSentenceEnd > maxChars * 0.8) {
+    // If we found a sentence within the last 20%, use it
+    truncated = truncated.substring(0, lastSentenceEnd + 1)
+  }
+
+  return truncated
+}
+
 // function to analyze with Groq (supports multiple Groq models)
 export async function analyzeWithGroq(
   content: string,
@@ -308,7 +335,18 @@ export async function analyzeWithGroq(
   const startTime = Date.now()
   const shortModelName = modelName.split('/').pop() || modelName
   console.log(`[Groq:${shortModelName}] Starting analysis...`)
-  console.log(`[Groq:${shortModelName}] Content length: ${content.length} chars`)
+  console.log(`[Groq:${shortModelName}] Original content length: ${content.length} chars`)
+
+  // Truncate content to fit token limits
+  // Conservative limits: ~4 chars per token, leaving room for prompt overhead
+  const MAX_CONTENT_CHARS = 12000 // ~3000 tokens for content, rest for prompt/response
+  const truncatedContent = truncateContent(content, MAX_CONTENT_CHARS)
+
+  if (truncatedContent.length < content.length) {
+    console.log(`[Groq:${shortModelName}] ⚠️ Content truncated from ${content.length} to ${truncatedContent.length} chars`)
+  }
+
+  console.log(`[Groq:${shortModelName}] Analysis content length: ${truncatedContent.length} chars`)
 
   // Build dynamic prompt from database category descriptions
   const categoryInstructions = biasCategories
@@ -334,7 +372,7 @@ export async function analyzeWithGroq(
 You are an expert media bias analyst. Analyze this article for bias across multiple categories.
 
 Article content:
-${content}
+${truncatedContent}
 
 SCORING INSTRUCTIONS:
 Score each bias category from -1 to +1 using the scales defined below.
@@ -512,8 +550,8 @@ export async function analyzeArticlesBatch(
 
     // Wait between articles (rate limiting)
     if (i < articles.length - 1) {
-      console.log(`[Batch] Waiting 15 seconds before next article...`)
-      await sleep(15000) // 15s
+      console.log(`[Batch] Waiting 5s seconds before next article...`)
+      await sleep(5000) // 5s
     }
   }
 

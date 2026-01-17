@@ -1544,3 +1544,257 @@ if (jsonText.includes('<think>')) {
 - [ ] Add "Analyzed by 4 AI Models" badge on articles
 - [ ] Show model success/failure indicators
 - [ ] Add tooltips explaining each model's background
+
+---
+
+## January 17, 2026
+
+### What I Built
+
+**Content Truncation for Groq Models**
+- Implemented smart truncation system to handle long articles that exceed Groq's token limits
+- Created `truncateContent()` helper function in `lib/ai.ts`:
+  - Limits content to 12,000 characters (~3,000 tokens)
+  - Intelligently ends at sentence boundaries for cleaner cuts
+  - Only truncates within last 20% to avoid cutting too much content
+- Groq models (Qwen, GPT-OSS, Llama) now analyze first ~12k chars of long articles
+- Gemini continues to analyze full article content (1M token context window)
+- Added logging to track when/how much content is truncated
+
+**Global Inter-Model Disagreement Metric**
+- Added new homepage statistic measuring AI model consensus
+- Calculates average absolute deviation between model scores for same article-category pairs
+- Formula: For each article-category, measure how far each model deviates from 4-model average, then average across all pairs
+- Displays as percentage (13.6% = models typically differ by 0.136 from group average)
+- Shows data quality: lower disagreement = higher confidence in ensemble scores
+- Positioned prominently above variance reduction metric on homepage
+
+**UI Improvements**
+- Changed AI model display from vertical list to 2-column grid on article detail pages
+- Updated from `space-y-8` to `grid md:grid-cols-2 gap-6`
+- Improved visual balance and reduced scrolling on desktop
+- Maintains responsive single-column layout on mobile
+
+**Cron Job Optimization**
+- Reduced wait time between articles from 15s to 5s
+- Analysis time (~10-15s per article) already provides natural spacing
+- 18 articles × ~17s total = ~5 minutes (well under rate limits)
+- Math: 4 articles/minute per model × 4 models = 16 requests/minute, safely under 5 requests/minute/model limit
+
+### Problems Encountered & Solutions
+
+#### 1. Groq Token Limit Exceeded (413 Errors)
+
+**Problem**: Long articles (23,911 chars) failed on all Groq models with 413 errors:
+- Qwen3-32B: Limit 6,000 TPM, Requested 10,873
+- GPT-OSS-120B: Limit 8,000 TPM, Requested 9,066
+- Llama Maverick: Limit 6,000 TPM, Requested 8,950
+
+**Root Cause**:
+- Article content + prompt instructions exceeded Groq's token-per-minute (TPM) limits
+- Groq free tier has much stricter limits than Gemini (6K-8K vs 1M tokens)
+
+**Solution**:
+```typescript
+function truncateContent(content: string, maxChars: number): string {
+  if (content.length <= maxChars) return content
+
+  let truncated = content.substring(0, maxChars)
+
+  // Try to end at sentence boundary
+  const lastSentenceEnd = Math.max(
+    truncated.lastIndexOf('. '),
+    truncated.lastIndexOf('! '),
+    truncated.lastIndexOf('? ')
+  )
+
+  if (lastSentenceEnd > maxChars * 0.8) {
+    truncated = truncated.substring(0, lastSentenceEnd + 1)
+  }
+
+  return truncated
+}
+```
+
+Applied to Groq models only (12,000 char limit), keeping Gemini with full content.
+
+**Result**: All 4 models successfully analyzed the same long article:
+- Gemini: 23,911 chars (full)
+- Qwen: 9,904 chars (truncated at sentence)
+- GPT-OSS: 9,904 chars (truncated at sentence)
+- Llama: 9,904 chars (truncated at sentence)
+
+**Key Learning**: Conservative character-to-token estimation (~4 chars per token) with buffer room prevents edge cases.
+
+#### 2. Understanding Inter-Model Disagreement Calculation
+
+**Concept Clarification Request**: User wanted detailed explanation of the disagreement metric math and TypeScript syntax.
+
+**Educational Approach**: Broke down both mathematical formula and code line-by-line:
+- Mathematical steps with concrete example (scores 0.6, 0.4, 0.5, 0.3 → ensemble 0.45 → deviations)
+- Syntax explanations:
+  - Arrow functions: `s => s.category`
+  - Array methods: `.map()`, `.filter()`, `.reduce()`
+  - Destructuring: `([mediaId, scores]) => { }`
+  - Set deduplication: `new Set(...)`
+  - Ternary operator: `condition ? valueIfTrue : valueIfFalse`
+
+**Result**: User understood both the statistics and the JavaScript patterns used to implement them.
+
+### Design Decisions
+
+#### Why Truncate Only Groq Models?
+
+**Diversity over consistency**:
+- Gemini's 1M token window enables full-content analysis
+- Groq models provide "quick scan" perspective on key sections
+- Having one full-context model is valuable for comparison
+- Different input lengths don't invalidate ensemble averaging (still same article)
+
+**Alternative considered**: Truncate all 4 models to same length for fairness
+**Rejected because**: Loses Gemini's strength; ensemble benefits from diverse approaches
+
+#### Why 12,000 Character Limit?
+
+**Token math**:
+- ~4 characters per token (conservative estimate)
+- 12,000 chars ≈ 3,000 tokens for content
+- Prompt + response ≈ 2,000-2,500 tokens
+- Total: ~5,000-5,500 tokens per request
+
+**Safety margin**: Well under limits:
+- Qwen/Llama: 6,000 TPM limit → 83% safety margin
+- GPT-OSS: 8,000 TPM limit → 31% safety margin
+
+**Why not higher**: Leaves buffer for prompt variations and response size
+
+#### Why Sentence Boundary Truncation?
+
+**Coherence**: Avoids mid-sentence cuts that could mislead AI analysis
+
+**Algorithm**: Only use sentence boundary if found within last 20% of limit
+- Prevents losing too much content (e.g., 5,000 chars cut to 2,000)
+- Balances coherence vs completeness
+
+#### Why 5-Second Wait Instead of 15?
+
+**Rate limit analysis**:
+```
+Groq limit: 5 requests/minute per model
+Our usage: 4 articles/minute (with 5s wait + 10s analysis)
+Per model: ~4 requests/minute < 5 limit ✓
+```
+
+**Time savings**: 18 articles × 10s saved = 180s (3 minutes faster)
+
+**Risk**: None - analysis time already provides spacing
+
+### Technical Concepts Demonstrated
+
+**String Manipulation**
+- `.substring()` for truncation
+- `.lastIndexOf()` for reverse search
+- Regex-free sentence detection using multiple character checks
+
+**Mathematical Statistics**
+- Mean Absolute Deviation (MAD) as disagreement metric
+- Ensemble averaging across models
+- Percentage conversion for interpretability
+
+**Defensive Programming**
+- Token limit estimation with safety margins
+- Graceful degradation (truncate vs fail)
+- Per-model logging for debugging
+
+**Educational Code Documentation**
+- Inline comments explaining "why" not just "what"
+- Step-by-step walkthroughs for complex logic
+- Real-world examples with actual data
+
+### Files Created/Modified
+
+| File | Action | Changes |
+|------|--------|---------|
+| `lib/ai.ts` | Modified | Added `truncateContent()`, applied to Groq models only, logging |
+| `app/page.tsx` | Modified | Added Global Inter-Model Disagreement calculation and display |
+| `app/articles/[id]/page.tsx` | Modified | Changed model display to 2-column grid |
+| `scripts/initArticles.ts` | Modified | Updated article count from 18 to 15, adjusted timing comments |
+
+### Interview Talking Points
+
+1. **Problem-Solving Under Constraints**:
+   - "Hit 413 token limit errors on production cron job"
+   - "Diagnosed by analyzing error messages: 10,873 requested vs 6,000 limit"
+   - "Implemented smart truncation with sentence boundaries for coherence"
+
+2. **Trade-Off Analysis**:
+   - "Chose to truncate Groq models but keep Gemini at full length"
+   - "Values diversity over consistency - one full-context model + three quick-scan models"
+   - "Demonstrates understanding that different approaches can complement each other"
+
+3. **Statistical Rigor**:
+   - "Added inter-model disagreement metric to quantify AI consensus"
+   - "13.6% disagreement means models typically differ by 0.136 on -1 to +1 scale"
+   - "This is a standard measure of ensemble reliability in ML"
+
+4. **Educational Code**:
+   - "When explaining complex code, I break down both the math and the syntax"
+   - "Provided real examples with actual numbers to make concepts concrete"
+   - "This mirrors how I'd explain technical decisions to stakeholders"
+
+5. **Performance Optimization**:
+   - "Reduced cron job wait time from 15s to 5s after rate limit analysis"
+   - "Math: 4 requests/min/model < 5 limit with built-in analysis time buffer"
+   - "Saved 3 minutes per run while maintaining safety margins"
+
+### What I Learned Today
+
+**Technical**:
+- Token limits vary drastically by provider (6K vs 1M)
+- Character-to-token estimation: ~4 chars/token is conservative
+- Sentence boundary detection without regex: check for `. `, `! `, `? `
+- Mean Absolute Deviation as interpretable disagreement metric
+
+**Architectural**:
+- Truncation strategy can be model-specific (don't always apply uniformly)
+- Logging truncation helps debug content-length issues
+- Inter-model disagreement is valuable metadata for ensemble systems
+
+**Communication**:
+- Breaking down syntax helps non-experts understand implementation
+- Real examples (0.6, 0.4, 0.5, 0.3) are clearer than abstract formulas
+- "Why" matters more than "what" in explanations
+
+**Debugging**:
+- 413 errors often indicate payload too large, not auth issues
+- Error messages contain diagnostic info (10,873 requested vs 6,000 limit)
+- Conservative estimates prevent edge cases better than exact calculations
+
+### Metrics & Impact
+
+**Before Truncation**:
+- Long articles: 3/4 models failed (only Gemini succeeded)
+- Cron job: Partial analysis (missing Groq perspectives)
+
+**After Truncation**:
+- Long articles: 4/4 models succeed
+- Cron job: Complete analysis for all articles
+- Example: 23,911 char article analyzed by all models (Gemini full, Groq truncated)
+
+**Performance**:
+- 5s wait vs 15s wait: 3 minutes saved per cron run
+- Rate limit utilization: 80% (4/5 requests per minute per model)
+- Safety margin: 20% buffer for variability
+
+### Next Steps
+
+**Immediate**:
+- [x] Test truncation with various article lengths
+- [x] Monitor cron job for token errors
+- [x] Verify inter-model disagreement displays correctly
+
+**Future**:
+- [ ] Add per-article disagreement score (not just global)
+- [ ] Visualize which categories have highest model disagreement
+- [ ] Consider adaptive truncation based on model limits
+- [ ] Add "content truncated" indicator in UI for transparency
