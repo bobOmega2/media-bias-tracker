@@ -115,19 +115,24 @@ export default function DashboardPage() {
   const variance = calculateVariance(allScores)
   const balanceScore = Math.min(100, Math.round(variance * 100)) // Higher variance = more balanced
 
-  // Find Most Common Bias Type
-  const biasCounts: { [key: string]: number } = {}
+  // Find Strongest Bias - category with highest average absolute score
+  const categoryAbsScores: { [key: string]: number[] } = {}
   articles.forEach(a => {
     a.ai_scores?.forEach(s => {
       const cat = s.bias_categories?.name
       if (cat) {
-        biasCounts[cat] = (biasCounts[cat] || 0) + 1
+        if (!categoryAbsScores[cat]) categoryAbsScores[cat] = []
+        categoryAbsScores[cat].push(Math.abs(s.score))
       }
     })
   })
-  const mostCommonBiasEntry = Object.entries(biasCounts).sort((a, b) => b[1] - a[1])[0]
-  const mostCommonBias = mostCommonBiasEntry ? mostCommonBiasEntry[0] : 'None'
-  const mostCommonBiasCount = mostCommonBiasEntry ? mostCommonBiasEntry[1] : 0
+  const categoryAvgAbsScores = Object.entries(categoryAbsScores).map(([category, scores]) => ({
+    category,
+    avgAbsScore: scores.reduce((sum, s) => sum + s, 0) / scores.length
+  }))
+  const strongestBiasEntry = categoryAvgAbsScores.sort((a, b) => b.avgAbsScore - a.avgAbsScore)[0]
+  const strongestBias = strongestBiasEntry ? strongestBiasEntry.category : 'None'
+  const strongestBiasScore = strongestBiasEntry ? strongestBiasEntry.avgAbsScore : 0
 
   // Determine balance description
   const getBalanceDescription = (score: number) => {
@@ -236,9 +241,9 @@ export default function DashboardPage() {
                 <p className="text-xs text-stone-500 dark:text-stone-500">{getBalanceDescription(balanceScore)}</p>
               </div>
               <div className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-lg p-6 transition-colors duration-300">
-                <p className="text-3xl font-bold text-orange-600 dark:text-orange-400 mb-1 capitalize">{mostCommonBias}</p>
-                <p className="text-sm text-stone-600 dark:text-stone-400 mb-2">Most Common Bias</p>
-                <p className="text-xs text-stone-500 dark:text-stone-500">{mostCommonBiasCount} {mostCommonBiasCount === 1 ? 'occurrence' : 'occurrences'}</p>
+                <p className="text-3xl font-bold text-orange-600 dark:text-orange-400 mb-1 capitalize">{strongestBias}</p>
+                <p className="text-sm text-stone-600 dark:text-stone-400 mb-2">Strongest Bias</p>
+                <p className="text-xs text-stone-500 dark:text-stone-500">Avg |score|: {strongestBiasScore.toFixed(2)}</p>
               </div>
             </div>
 

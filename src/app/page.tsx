@@ -89,6 +89,11 @@ export default async function Page() {
       category: score.bias_categories?.name || ''
     })
   })
+  
+// Arrays to compute variance reduction properly
+let singleModelScores: number[] = []       // all single-model scores
+let ensembleMeans: number[] = []           // 4-model averages for each article-category
+
 
   // Count articles with all 4 models analyzed
   const articlesWithAll4Models = Object.entries(scoresByMedia).filter(([_, scores]) => {
@@ -109,15 +114,21 @@ export default async function Page() {
 
     categories.forEach(category => {
       const categoryScores = scores.filter(s => s.category === category)
-      if (categoryScores.length === 0) return
+      if (categoryScores.length < configuredModels.length) return // skip incomplete
 
-      // Calculate average for this category
-      const avg = categoryScores.reduce((sum, s) => sum + s.score, 0) / categoryScores.length
+      const scoreValues = categoryScores.map(s => s.score)
 
-      // Calculate each model's deviation
+      // Collect single-model scores for variance calculation
+      singleModelScores.push(...scoreValues)
+
+      // Compute ensemble mean for this article-category
+      const ensembleMean = scoreValues.reduce((sum, s) => sum + s, 0) / scoreValues.length
+      ensembleMeans.push(ensembleMean)
+
+      // Calculate each model's deviation for tendencies display
       categoryScores.forEach(score => {
         if (!modelTendencies[score.model]) return
-        const deviation = score.score - avg
+        const deviation = score.score - ensembleMean
 
         if (!modelTendencies[score.model][category]) {
           modelTendencies[score.model][category] = { deviation: 0, count: 0 }
@@ -137,6 +148,28 @@ export default async function Page() {
     }))
     return { model, categoryDeviations }
   })
+
+  // ========== VARIANCE REDUCTION CALCULATION ==========
+  // Compute single-model variance (variance of all individual model scores)
+  const globalSingleMean = singleModelScores.length > 0
+    ? singleModelScores.reduce((sum, s) => sum + s, 0) / singleModelScores.length
+    : 0
+  const singleModelVariance = singleModelScores.length > 0
+    ? singleModelScores.reduce((sum, s) => sum + Math.pow(s - globalSingleMean, 2), 0) / singleModelScores.length
+    : 0
+
+  // Compute ensemble (4-model mean) variance
+  const globalEnsembleMean = ensembleMeans.length > 0
+    ? ensembleMeans.reduce((sum, s) => sum + s, 0) / ensembleMeans.length
+    : 0
+  const ensembleVariance = ensembleMeans.length > 0
+    ? ensembleMeans.reduce((sum, s) => sum + Math.pow(s - globalEnsembleMean, 2), 0) / ensembleMeans.length
+    : 0
+
+  // Realistic variance reduction % (accounts for model correlation)
+  const varianceReductionPct = singleModelVariance > 0
+    ? ((singleModelVariance - ensembleVariance) / singleModelVariance) * 100
+    : 0
 
   // Fetch bias categories for display
   const { data: biasCategories } = await supabase
@@ -421,6 +454,22 @@ export default async function Page() {
                 How each AI model tends to score compared to the 4-model average across {completeAnalysisCount} fully analyzed article{completeAnalysisCount !== 1 ? 's' : ''}
               </p>
             </div>
+
+         {/* Variance Reduction Hero Stat */}
+<div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 rounded-xl p-8 border-2 border-emerald-200 dark:border-emerald-800 mb-10 transition-colors duration-300">
+  <div className="text-center">
+    <p className="text-6xl font-bold text-emerald-700 dark:text-emerald-400 mb-3 transition-colors duration-300">
+      {varianceReductionPct.toFixed(1)}%
+    </p>
+    <p className="text-lg uppercase tracking-wide text-emerald-800 dark:text-emerald-300 font-semibold mb-2 transition-colors duration-300">
+      Bias Variance Reduction
+    </p>
+    <p className="text-sm text-emerald-700 dark:text-emerald-400 max-w-md mx-auto transition-colors duration-300">
+      Reduced bias score variance compared to single-LLM outputs from <strong>{completeAnalysisCount}</strong> fully analyzed article{completeAnalysisCount !== 1 ? 's' : ''} through 4-model ensemble averaging
+    </p>
+  </div>
+</div>
+
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {modelAvgDeviations.map(({ model, categoryDeviations }) => (

@@ -80,7 +80,9 @@ export async function GET(request: NextRequest) {
       console.log(`[Cron ${runId}] ✓ Fetch & analysis complete in ${fetchDuration}ms (${(fetchDuration / 1000 / 60).toFixed(2)} minutes)`)
       console.log(`[Cron ${runId}] Fetch results:`)
       console.log(`[Cron ${runId}]   - Articles fetched: ${fetchResult.articlesFetched}`)
-      console.log(`[Cron ${runId}]   - Articles analyzed: ${fetchResult.articlesAnalyzed}`)
+      console.log(`[Cron ${runId}]   - Articles analyzed (at least 1 model): ${fetchResult.articlesAnalyzed}`)
+      console.log(`[Cron ${runId}]   - Full analyses (all 4 models): ${fetchResult.fullAnalyses || 'N/A'}`)
+      console.log(`[Cron ${runId}]   - Failed analyses: ${fetchResult.failedAnalyses || 'N/A'}`)
       console.log(`[Cron ${runId}]   - Success: ${fetchResult.success}`)
     } catch (fetchError) {
       const fetchDuration = Date.now() - fetchStartTime

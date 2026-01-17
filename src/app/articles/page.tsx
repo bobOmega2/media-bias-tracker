@@ -31,9 +31,29 @@ export default async function ArticlesPage() {
 
   // Helper to pick badge color based on score
   const getScoreColor = (score: number) => {
-    if (score > 0) return 'bg-green-200 text-green-800 dark:bg-green-800 dark:text-green-200'
-    if (score < 0) return 'bg-red-200 text-red-800 dark:bg-red-800 dark:text-red-200'
-    return 'bg-gray-200 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+    if (score > 0.3) return 'bg-blue-200 text-blue-800 dark:bg-blue-800 dark:text-blue-200'
+    if (score < -0.3) return 'bg-red-200 text-red-800 dark:bg-red-800 dark:text-red-200'
+    return 'bg-green-200 text-green-800 dark:bg-green-800 dark:text-green-200'
+  }
+
+  // Helper to compute averaged scores per category (across all models)
+  const getAveragedScores = (aiScores: any[]) => {
+    if (!aiScores || aiScores.length === 0) return []
+
+    // Group scores by category
+    const categoryScores: { [key: string]: number[] } = {}
+    for (const score of aiScores) {
+      const categoryName = score.bias_categories?.[0]?.name || score.bias_categories?.name
+      if (!categoryName) continue
+      if (!categoryScores[categoryName]) categoryScores[categoryName] = []
+      categoryScores[categoryName].push(parseFloat(score.score))
+    }
+
+    // Calculate average for each category
+    return Object.entries(categoryScores).map(([category, scores]) => ({
+      category,
+      avgScore: scores.reduce((sum, s) => sum + s, 0) / scores.length
+    }))
   }
 
   // Separate promo articles (top 20 with AI scores) and others
@@ -135,14 +155,14 @@ export default async function ArticlesPage() {
                       {article.title}
                     </h3>
 
-                    {/* AI Score badges */}
+                    {/* AI Score badges - averaged across models */}
                     <div className="flex flex-wrap gap-2">
-                      {article.ai_scores.map((score: any, idx: number) => (
+                      {getAveragedScores(article.ai_scores).map((avgScore, idx) => (
                         <span
                           key={idx}
-                          className={`px-2 py-1 rounded-full text-xs font-semibold ${getScoreColor(parseFloat(score.score))}`}
+                          className={`px-2 py-1 rounded-full text-xs font-semibold ${getScoreColor(avgScore.avgScore)}`}
                         >
-                          {score.bias_categories?.name}: {score.score}
+                          {avgScore.category}: {avgScore.avgScore > 0 ? '+' : ''}{avgScore.avgScore.toFixed(2)}
                         </span>
                       ))}
                     </div>
@@ -194,14 +214,14 @@ export default async function ArticlesPage() {
                       {article.title}
                     </h3>
 
-                    {/* AI Score badges */}
+                    {/* AI Score badges - averaged across models */}
                     <div className="flex flex-wrap gap-2">
-                      {article.ai_scores.map((score: any, idx: number) => (
+                      {getAveragedScores(article.ai_scores).map((avgScore, idx) => (
                         <span
                           key={idx}
-                          className={`px-2 py-1 rounded-full text-xs font-semibold ${getScoreColor(parseFloat(score.score))}`}
+                          className={`px-2 py-1 rounded-full text-xs font-semibold ${getScoreColor(avgScore.avgScore)}`}
                         >
-                          {score.bias_categories?.name}: {score.score}
+                          {avgScore.category}: {avgScore.avgScore > 0 ? '+' : ''}{avgScore.avgScore.toFixed(2)}
                         </span>
                       ))}
                     </div>

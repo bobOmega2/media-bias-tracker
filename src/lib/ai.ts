@@ -452,6 +452,14 @@ export async function analyzeArticlesBatch(
   let successCount = 0
   let failCount = 0
 
+  // Track per-model success rates
+  const modelStats = {
+    gemini: { success: 0, fail: 0 },
+    qwen: { success: 0, fail: 0 },
+    gptOss: { success: 0, fail: 0 },
+    llamaMaverick: { success: 0, fail: 0 }
+  }
+
   // looping through the array of articles, analyzing each
   // NOTE: analyzeArticle ONLY saves AI scores, media is already inserted
   // This function will only be used by scripts/initArticles.ts
@@ -475,6 +483,12 @@ export async function analyzeArticlesBatch(
 
       results.push(analysis)
       successCount++
+
+      // Track per-model success/failure
+      analysis.gemini ? modelStats.gemini.success++ : modelStats.gemini.fail++
+      analysis.qwen ? modelStats.qwen.success++ : modelStats.qwen.fail++
+      analysis.gptOss ? modelStats.gptOss.success++ : modelStats.gptOss.fail++
+      analysis.llamaMaverick ? modelStats.llamaMaverick.success++ : modelStats.llamaMaverick.fail++
 
       const modelsSucceeded = [analysis.gemini, analysis.qwen, analysis.gptOss, analysis.llamaMaverick].filter(Boolean).length
       const articleDuration = Date.now() - articleStartTime
@@ -508,6 +522,13 @@ export async function analyzeArticlesBatch(
   console.log(`[Batch] ========== BATCH ANALYSIS COMPLETE ==========`)
   console.log(`[Batch] Total time: ${(totalDuration / 1000 / 60).toFixed(2)} minutes`)
   console.log(`[Batch] Results: ${successCount} success, ${failCount} failed out of ${articles.length}`)
+  console.log(`[Batch] `)
+  console.log(`[Batch] ========== PER-MODEL SUCCESS RATES ==========`)
+  console.log(`[Batch]   Gemini 2.5 Flash:    ${modelStats.gemini.success}/${modelStats.gemini.success + modelStats.gemini.fail} (${modelStats.gemini.fail} failed)`)
+  console.log(`[Batch]   Qwen3 32B:           ${modelStats.qwen.success}/${modelStats.qwen.success + modelStats.qwen.fail} (${modelStats.qwen.fail} failed)`)
+  console.log(`[Batch]   GPT-OSS 120B:        ${modelStats.gptOss.success}/${modelStats.gptOss.success + modelStats.gptOss.fail} (${modelStats.gptOss.fail} failed)`)
+  console.log(`[Batch]   Llama 4 Maverick:    ${modelStats.llamaMaverick.success}/${modelStats.llamaMaverick.success + modelStats.llamaMaverick.fail} (${modelStats.llamaMaverick.fail} failed)`)
+  console.log(`[Batch] `)
   console.log(`[Batch] End time: ${new Date().toISOString()}`)
 
   return results
