@@ -30,6 +30,20 @@ export default async function Page() {
     .from('bias_categories')
     .select('*', { count: 'exact', head: true })
 
+  // Count articles with at least one analysis (from both tables)
+  const { data: activeAnalyzedIds } = await supabase
+    .from('ai_scores')
+    .select('media_id')
+  const { data: archivedAnalyzedIds } = await supabase
+    .from('archived_ai_scores')
+    .select('media_id')
+
+  const uniqueAnalyzedMediaIds = new Set([
+    ...(activeAnalyzedIds || []).map((r: any) => r.media_id),
+    ...(archivedAnalyzedIds || []).map((r: any) => r.media_id)
+  ])
+  const articlesAnalyzedCount = uniqueAnalyzedMediaIds.size
+
   const { count: activeScores } = await supabase
     .from('ai_scores')
     .select('*', { count: 'exact', head: true })
@@ -434,7 +448,7 @@ let ensembleMeans: number[] = []           // 4-model averages for each article-
                 {totalArticles ?? 0}
               </p>
               <p className="text-sm uppercase tracking-wide text-stone-600 dark:text-stone-400 mb-1 transition-colors duration-300">
-                Articles Analyzed
+                Total Articles
               </p>
               <p className="text-xs text-stone-500 dark:text-stone-500 transition-colors duration-300">
                 From trusted news sources
@@ -443,13 +457,13 @@ let ensembleMeans: number[] = []           // 4-model averages for each article-
 
             <div className="text-center bg-white dark:bg-stone-950 rounded-lg p-8 border border-stone-200 dark:border-stone-800 transition-colors duration-300">
               <p className="text-5xl font-bold text-stone-900 dark:text-stone-100 mb-2 transition-colors duration-300">
-                {totalCategories ?? 0}
+                {articlesAnalyzedCount ?? 0}
               </p>
               <p className="text-sm uppercase tracking-wide text-stone-600 dark:text-stone-400 mb-1 transition-colors duration-300">
-                Bias Categories
+                Articles Analyzed
               </p>
               <p className="text-xs text-stone-500 dark:text-stone-500 transition-colors duration-300">
-                Multi-dimensional analysis
+                With one or more AI analysis
               </p>
             </div>
 
