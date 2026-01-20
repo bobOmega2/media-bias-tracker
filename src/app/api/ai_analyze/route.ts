@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { analyzeArticle } from '@/lib/ai'
 import { createClient } from '@/utils/supabase/server'
+import { supabaseAdmin } from '@/utils/supabase/admin'
 import { extract } from '@extractus/article-extractor'
 
 export async function POST(request: NextRequest) {
@@ -90,12 +91,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Run AI analysis on the article
+    // Use supabaseAdmin to bypass RLS for inserting AI scores
     const analysis = await analyzeArticle({
       mediaId: finalMediaId,
       url,
       title,
       source,
-      supabaseClient: supabase
+      supabaseClient: supabaseAdmin
     })
 
     // Return media record and analysis from all 4 models

@@ -1467,4 +1467,125 @@ Requests per minute: 2.4 < 5 limit ✓ Still safe
 
 ### Interview Talking Point
 
-"I analyzed rate limit constraints mathematically: 5s wait + 10s analysis = 15s per article ≈ 4 requests/min per model, safely under the 5 req/min limit. This reduced cron job time from 8.25 to 5.1 minutes while maintaining safety margins. I prioritize data-driven optimization over arbitrary buffers."
+""I analyzed rate limit constraints mathematically: 5s wait + 10s analysis = 15s per article ≈ 4 requests/min per model, safely under the 5 req/min limit. This reduced cron job time from 8.25 to 5.1 minutes while maintaining safety margins. I prioritize data-driven optimization over arbitrary buffers."
+
+---
+
+## Supabase Row Limit Discovery & Fix
+
+### Date: January 20, 2026
+
+### Decision: Use `.range()` Instead of `.limit()` for Large Datasets
+
+**Problem Encountered**: Homepage "Fully Analyzed Articles" count was stuck at 68, even though database had 78+ articles with all 4 AI models. Debug logs revealed exactly 1,000 rows were being fetched despite having 1,152+ rows in the database.
+
+### Root Cause Analysis
+
+**Supabase has multiple row limits**:
+
+1. **PostgREST default**: 1,000 rows max per query
+2. **Dashboard setting**: Configurable limit in Supabase project settings
+3. **`.limit()` behavior**: May be overridden by server-side limits
+
+**Code that didn't work**:
+```typescript
+const { data } = await supabase
+  .from('ai_scores')
+  .select('...')
+  .limit(10000)  // Ignored by server-side limit!
+```
+
+**Code that works**:
+```typescript
+const { data } = await supabase
+  .from('ai_scores')
+  .select('...')
+  .range(0, 9999)  // Explicitly sets range, respects this
+```
+
+### Why `.range()` Works Better
+
+**`.limit(N)`**:
+- Sets client-side intention to fetch N rows
+- Can be overridden by server-side PostgREST config
+- Doesn't guarantee you'll get N rows
+
+**`.range(start, end)`**:
+- Explicitly requests rows from `start` to `end` (inclusive)
+- Maps directly to SQL `OFFSET` and `LIMIT`
+- More explicit contract with the database
+
+### Dashboard Configuration
+
+Also updated Supabase dashboard settings:
+- Settings → API → Max rows returned
+- Changed from 1,000 to 10,000
+
+**Important**: Both code AND dashboard settings needed to be updated.
+
+### Detection Strategy
+
+**Red Flag Indicators**:
+- Exactly round numbers in results (1000, 500, etc.)
+- Count discrepancies between SQL queries and API results
+- Data that "should be there" but isn't visible
+
+**Debug Logging Pattern**:
+```typescript
+console.log(`[Query] Rows fetched: ${data?.length || 0}`)
+```
+
+If this shows exactly 1000, you've hit a limit.
+
+### Trade-Offs
+
+| Option | Pros | Cons | Decision |
+|--------|------|------|----------|
+| **`.limit(10000)`** | Simple syntax | Can be overridden by server | ❌ Unreliable |
+| **`.range(0, 9999)`** | Explicit, reliable | Slightly more verbose | ✅ Chosen |
+| **Pagination** | Handles unlimited data | Complex implementation | ⚠️ Future option |
+| **Dashboard only** | No code changes | Easy to forget, not version controlled | ❌ Fragile |
+
+### Best Practice Established
+
+**For queries expecting >1000 rows**:
+```typescript
+// Always use .range() for large datasets
+const { data } = await supabase
+  .from('table')
+  .select('*')
+  .range(0, 9999)  // Explicit range up to 10,000 rows
+
+// Add debug logging during development
+console.log(`[Query] Fetched ${data?.length || 0} rows`)
+```
+
+### Interview Talking Points
+
+1. **Debugging Methodology**:
+   - "Noticed exactly 1000 rows - round numbers suggest limits/truncation"
+   - "Cross-referenced SQL count vs API results to confirm data existed"
+   - "Systematic hypothesis testing: RLS → model names → row limits"
+
+2. **Supabase Deep Knowledge**:
+   - "Supabase has multiple layers of row limits that can interact"
+   - "`.range()` is more explicit than `.limit()` for large queries"
+   - "Dashboard settings can silently override query parameters"
+
+3. **Production-Ready Thinking**:
+   - "Added debug logging before diving into speculation"
+   - "Fixed both code AND dashboard config for defense in depth"
+   - "Documented for future team members"
+
+### Lessons Learned
+
+**Technical**:
+- Supabase defaults can silently truncate data without errors
+- `.range(0, N)` is more reliable than `.limit(N)` for large datasets
+- Dashboard settings interact with query parameters in unexpected ways
+
+**Process**:
+- Add logging EARLY when debugging data issues
+- Round numbers in results are a red flag
+- Verify assumptions with direct SQL queries
+- Document "gotchas" for future reference"

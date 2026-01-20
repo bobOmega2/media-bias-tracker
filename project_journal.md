@@ -1798,3 +1798,129 @@ Per model: ~4 requests/minute < 5 limit ✓
 - [ ] Visualize which categories have highest model disagreement
 - [ ] Consider adaptive truncation based on model limits
 - [ ] Add "content truncated" indicator in UI for transparency
+
+---
+
+## January 20, 2026
+
+### What I Worked On Today
+
+**Debugging Homepage "Fully Analyzed Articles" Count Discrepancy**
+
+Spent significant time debugging why newly analyzed articles (from the analyze page) weren't incrementing the "All 4 AI Analyzed Articles" count on the homepage, even though all 4 models successfully analyzed them.
+
+### The Problem
+
+- User submitted articles through `/analyze` page
+- Logs confirmed 4/4 models succeeded with proper scores
+- SQL queries confirmed data existed in database (all 4 models, 3 categories each)
+- But homepage count stayed at 68 instead of increasing to 78+
+
+### Investigation Process (Systematic Debugging)
+
+**1. Initial Hypothesis - RLS Blocking Writes**
+- Thought: `ai_analyze` route was using anon key, RLS might block inserts
+- Action: Changed `createClient()` to `supabaseAdmin` in API route
+- Result: Didn't fix it
+
+**2. Second Hypothesis - Model Name Mismatch**
+- Thought: Gemini might be falling back to `gemini-2.5-flash-lite` but homepage only checks for `gemini-2.5-flash`
+- Action: Checked database entries
+- Result: Database only had `gemini-2.5-flash` - not the issue
+
+**3. Third Hypothesis - RLS Blocking Reads**
+- Thought: Maybe homepage was using anon key and RLS was filtering results
+- Action: Changed homepage to use `supabaseAdmin` instead of `createClient()`
+- Result: Still didn't fix it
+
+**4. Added Debug Logging**
+- Added console.log statements to trace data flow:
+  ```typescript
+  console.log(`[Homepage] Active scores fetched: ${activeScoresData?.length || 0}`)
+  console.log(`[Homepage] Archived scores fetched: ${archivedScoresData?.length || 0}`)
+  console.log(`[Homepage] Total scores: ${allScoresData.length}`)
+  console.log(`[Homepage] Unique media IDs: ${Object.keys(scoresByMedia).length}`)
+  console.log(`[Homepage] Articles with all 4 models: ${completeAnalysisCount}`)
+  ```
+
+**5. THE REVELATION**
+```
+[Homepage] Active scores fetched: 1000  <-- EXACTLY 1000!
+[Homepage] Archived scores fetched: 90
+[Homepage] Total scores: 1090
+[Homepage] Unique media IDs: 133
+[Homepage] Articles with all 4 models: 68
+```
+
+Database had 1,152 ai_scores but only 1,000 were being fetched!
+
+### Root Cause
+
+**Supabase Default Row Limit**: Supabase has a default limit of 1,000 rows per query.
+
+- The `.limit(10000)` call wasn't working as expected
+- Changed to `.range(0, 9999)` which explicitly sets the range
+- Also discovered there was a Supabase dashboard setting restricting results to 1,000 rows
+
+### The Fix
+
+1. Changed query from `.limit(10000)` to `.range(0, 9999)`
+2. Updated Supabase dashboard settings to allow more than 1,000 rows
+
+### Results After Fix
+```
+[Homepage] Active scores fetched: 1149
+[Homepage] Archived scores fetched: 90
+[Homepage] Total scores: 1239
+[Homepage] Unique media IDs: 143
+[Homepage] Articles with all 4 models: 78  <-- Correct!
+```
+
+### Key Learnings
+
+**Technical**:
+- Supabase has a default 1,000 row limit that can silently truncate results
+- `.limit()` may not work as expected; `.range(0, N)` is more reliable
+- Dashboard settings can override query parameters
+- Always add debug logging when investigating data issues
+
+**Debugging Process**:
+- Systematic elimination of hypotheses is essential
+- Don't assume the obvious answer (RLS was a red herring)
+- Add logging EARLY to see actual data flow
+- Compare expected vs actual values at each step
+- Round numbers (exactly 1000) are a red flag for limits/truncation
+
+**Best Practices**:
+- When fetching large datasets, be explicit about limits
+- Debug logs with actual counts reveal issues quickly
+- SQL queries to verify data exists in DB are valuable cross-checks
+- Keep logs during investigation, remove after fix
+
+### Interview Talking Points
+
+1. **Systematic Debugging**:
+   - "Worked through 5 hypotheses methodically before finding root cause"
+   - "Added debug logging to trace actual data flow vs assumptions"
+   - "Round number (1000) was the clue - indicated a limit/truncation"
+
+2. **Supabase Knowledge**:
+   - "Discovered Supabase has both query-level and dashboard-level row limits"
+   - "`.range(0, N)` is more reliable than `.limit(N)` for large datasets"
+   - "Default limits can silently truncate without errors"
+
+3. **Problem-Solving Approach**:
+   - "Started with obvious suspects (RLS), but didn't stop when they weren't the issue"
+   - "Cross-referenced SQL queries against API results to isolate the problem"
+   - "Used logging to get concrete numbers rather than guessing"
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `src/app/api/ai_analyze/route.ts` | Changed to use `supabaseAdmin` (part of investigation) |
+| `src/app/page.tsx` | Changed to `supabaseAdmin`, added `.range(0, 9999)`, added debug logs |
+
+### Time Spent
+
+~2 hours debugging, but the systematic approach and documentation make this reusable knowledge for future Supabase projects.

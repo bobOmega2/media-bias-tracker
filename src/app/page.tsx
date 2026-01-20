@@ -10,10 +10,12 @@
  */
 
 import { createClient } from '@/utils/supabase/server'
+import { supabaseAdmin } from '@/utils/supabase/admin'
 import Link from 'next/link'
 
 export default async function Page() {
-  const supabase = await createClient()
+  // Use admin client to bypass RLS for reading all scores
+  const supabase = supabaseAdmin
 
   // Fetch stats from both active and archived tables
   const { count: activeArticles } = await supabase
@@ -76,16 +78,19 @@ export default async function Page() {
   const configuredModels = Object.keys(modelConfig)
 
   // Fetch all AI scores from active table (with media_id and category)
+  // Note: Supabase default limit is 1000 rows, use range(0, 9999) to fetch up to 10000
   const { data: activeScoresData } = await supabase
     .from('ai_scores')
     .select('score, model_name, media_id, bias_categories(name)')
     .in('model_name', configuredModels)
+    .range(0, 9999)
 
   // Fetch all AI scores from archived table
   const { data: archivedScoresData } = await supabase
     .from('archived_ai_scores')
     .select('score, model_name, media_id, bias_categories(name)')
     .in('model_name', configuredModels)
+    .range(0, 9999)
 
   // Combine all scores
   const allScoresData = [...(activeScoresData || []), ...(archivedScoresData || [])]
@@ -115,6 +120,13 @@ let ensembleMeans: number[] = []           // 4-model averages for each article-
     return configuredModels.every(m => uniqueModels.has(m))
   })
   const completeAnalysisCount = articlesWithAll4Models.length
+
+  // DEBUG: Log query results
+  console.log(`[Homepage] Active scores fetched: ${activeScoresData?.length || 0}`)
+  console.log(`[Homepage] Archived scores fetched: ${archivedScoresData?.length || 0}`)
+  console.log(`[Homepage] Total scores: ${allScoresData.length}`)
+  console.log(`[Homepage] Unique media IDs: ${Object.keys(scoresByMedia).length}`)
+  console.log(`[Homepage] Articles with all 4 models: ${completeAnalysisCount}`)
 
   // Calculate model tendencies across all complete articles
   const modelTendencies: { [model: string]: { [category: string]: { deviation: number; count: number } } } = {}
