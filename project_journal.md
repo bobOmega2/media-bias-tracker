@@ -1924,3 +1924,32 @@ Database had 1,152 ai_scores but only 1,000 were being fetched!
 ### Time Spent
 
 ~2 hours debugging, but the systematic approach and documentation make this reusable knowledge for future Supabase projects.
+
+---
+
+### Additional Fix: Bias Category Description Formatting
+
+**Problem**: Alibaba Qwen model was outputting scores like `"+1"`, `"+0.5"` instead of `1`, `0.5` in its JSON responses. When parsing the JSON string to an object, these string values couldn't be interpreted as numbers.
+
+**Root Cause**: The bias category descriptions in the database included explicit score values like:
+```
+Score +1 for strongly right-leaning
+Score +0.5 for moderately right-leaning
+Score 0 for neutral
+Score -0.5 for moderately left-leaning
+Score -1 for strongly left-leaning
+```
+
+Qwen was literally copying the "+1", "+0.5" format into its JSON output, producing:
+```json
+{
+  "political": "+0.5",  // String, not number!
+  "economic": "-0.5"
+}
+```
+
+**The Fix**: Updated bias category descriptions in the database to remove the explicit `+` signs and score examples. Made the descriptions more qualitative rather than prescribing exact numeric values.
+
+**Lesson Learned**: LLMs are literal interpreters. If your prompt includes formatted examples like "+1", the model may copy that exact format. Keep numeric examples clean (use `1` not `+1`) or omit them entirely and let the model infer appropriate values from the scale description.
+
+**Interview Talking Point**: "Discovered that prompt formatting directly affects JSON output formatting. Qwen was copying '+0.5' as a string literal from the prompt. Fixed by removing explicit score examples from category descriptions - demonstrates understanding of how LLM prompts influence structured outputs."
