@@ -14,10 +14,11 @@ export interface ArchivalOptions {
 }
 
 /**
- * Archives old GNews articles (1+ days old) from media and ai_scores tables
+ * Archives old articles (1+ days old) from media and ai_scores tables
  * to archived_media and archived_ai_scores tables.
  *
- * Only archives articles where user_analyzed = false (GNews articles).
+ * Archives ALL articles (both user_analyzed=true and user_analyzed=false).
+ * Handles duplicate key errors gracefully (skips already-archived records).
  * Deletes original records after successful archiving.
  *
  * @param options - Configuration options
@@ -47,11 +48,10 @@ export async function archiveOldArticles(
     console.log('[Archive] Batch size:', batchSize)
     console.log('[Archive] Dry run:', dryRun)
 
-    // Query old GNews articles
+    // Query old articles (both GNews and user submissions)
     const { data: oldArticles, error: queryError } = await supabaseAdmin
       .from('media')
       .select('*')
-      .eq('user_analyzed', false)
       .lt('created_at', yesterdayISO)
       .limit(batchSize)
 
@@ -110,8 +110,15 @@ export async function archiveOldArticles(
           .from('archived_media')
           .insert(archivedArticle)
 
+        // Check if this is a duplicate key error (article already archived)
         if (archiveError) {
-          throw new Error(`Failed to insert into archived_media: ${archiveError.message}`)
+          // PostgreSQL error code 23505 = unique_violation
+          if (archiveError.code === '23505') {
+            console.log('[Archive] Article already in archived_media, skipping insert:', article.id)
+            // Continue to deletion step - we still need to remove from media table
+          } else {
+            throw new Error(`Failed to insert into archived_media: ${archiveError.message}`)
+          }
         }
 
         // Insert ai_scores into archived_ai_scores (keeping same IDs and media_id)
@@ -134,7 +141,13 @@ export async function archiveOldArticles(
             .insert(archivedScores)
 
           if (scoresArchiveError) {
-            throw new Error(`Failed to insert into archived_ai_scores: ${scoresArchiveError.message}`)
+            // PostgreSQL error code 23505 = unique_violation
+            if (scoresArchiveError.code === '23505') {
+              console.log('[Archive] Some AI scores already archived, skipping duplicates for:', article.id)
+              // Continue to deletion step - we still need to remove from ai_scores table
+            } else {
+              throw new Error(`Failed to insert into archived_ai_scores: ${scoresArchiveError.message}`)
+            }
           }
 
           result.aiScoresArchived += aiScores.length
