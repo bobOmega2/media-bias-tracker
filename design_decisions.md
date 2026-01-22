@@ -1588,4 +1588,190 @@ console.log(`[Query] Fetched ${data?.length || 0} rows`)
 - Add logging EARLY when debugging data issues
 - Round numbers in results are a red flag
 - Verify assumptions with direct SQL queries
-- Document "gotchas" for future reference"
+- Document "gotchas" for future reference
+
+---
+
+## Archival Function Error Handling & Idempotent Design
+
+### Date: January 22, 2026
+
+### Decision: Handle Duplicate Key Errors Gracefully in Archival Process
+
+**Problem Encountered**: Daily cron job stuck in infinite loop. Articles were failing to archive with duplicate key errors, preventing new articles from being analyzed.
+
+### Root Cause Analysis
+
+**Three interrelated issues**:
+
+1. **Constraint Mismatch**: `archived_ai_scores` had UNIQUE constraint on `(media_id, category_id)` but needed `(media_id, category_id, model_name)` to match `ai_scores` table
+2. **Exception on Duplicate**: Code threw exceptions on duplicate key errors instead of handling gracefully
+3. **Incomplete Archival Filter**: Only archived `user_analyzed=false` instead of all articles
+
+### The Infinite Loop
+
+**What was happening**:
+1. Cron job tries to archive 50 articles
+2. Article already exists in `archived_media` → duplicate key error
+3. Code throws exception → article stays in `media` table
+4. Next cron run tries same 50 articles again (infinite loop)
+5. Step 2 (analyze new articles) never runs
+
+### Design Decision: Idempotent Error Handling
+
+**Chosen Approach**: Check PostgreSQL error code and skip gracefully
+
+```typescript
+const { error: archiveError } = await supabaseAdmin
+  .from('archived_media')
+  .insert(archivedArticle)
+
+if (archiveError) {
+  // PostgreSQL error code 23505 = unique_violation
+  if (archiveError.code === '23505') {
+    console.log('[Archive] Already archived, skipping insert')
+    // Continue to deletion step
+  } else {
+    throw new Error(`Failed to insert: ${archiveError.message}`)
+  }
+}
+```
+
+### Alternative Approaches Considered
+
+| Approach | Implementation | Pros | Cons | Decision |
+|----------|---------------|------|------|----------|
+| **Pre-query check** | `SELECT` then `INSERT` | Explicit | 2× DB calls, race condition | ❌ Rejected |
+| **UPSERT** | `INSERT ... ON CONFLICT` | One query | Overwrites existing data | ❌ Rejected |
+| **Error code check** | Try insert, handle `23505` | 1 DB call, atomic | Requires error code knowledge | ✅ **Chosen** |
+| **Throw & retry** | Original behavior | Simple | Infinite loop | ❌ Broken |
+
+### Why Error Code Check Wins
+
+**Performance**: Single database operation (not check-then-insert)
+
+**Atomicity**: Database enforces uniqueness constraint (no race conditions)
+
+**Idempotence**: Function can run multiple times safely on same data
+
+**Defensive**: Assumes errors will happen, handles them gracefully
+
+### Implementation Details
+
+**Files Modified**:
+- `src/lib/archiveArticles.ts`: Added duplicate key handling for both `archived_media` and `archived_ai_scores`
+
+**Key Changes**:
+1. Detect PostgreSQL error code `23505` (unique_violation)
+2. Log the skip (for observability)
+3. Continue to deletion step (clean up source table)
+4. Only throw for non-duplicate errors
+
+**Database Fix**:
+```sql
+-- Drop incorrect constraint
+ALTER TABLE archived_ai_scores
+DROP CONSTRAINT archived_ai_scores_media_id_category_id_key;
+
+-- Add correct constraint (include model_name)
+ALTER TABLE archived_ai_scores
+ADD CONSTRAINT archived_ai_scores_one_model_per_media_category
+UNIQUE (media_id, category_id, model_name);
+```
+
+### Trade-Offs
+
+**Advantages**:
+- ✅ No more infinite loops
+- ✅ Idempotent (safe to retry)
+- ✅ Minimal performance impact
+- ✅ Database enforces integrity
+
+**Disadvantages**:
+- ⚠️ Relies on PostgreSQL-specific error codes (not fully database-agnostic)
+- ⚠️ Assumes duplicate = already processed (true in this case)
+
+**Mitigation**: PostgreSQL is the only database used (Supabase), so error code dependency is acceptable.
+
+### Edge Cases Handled
+
+- **Article in archived_media but still in media**: Skip insert, proceed to deletion
+- **Some AI scores already archived**: Skip duplicates, insert new ones, delete all from source
+- **All AI scores already archived**: Skip all inserts, proceed to deletion
+- **No AI scores for article**: Already handled (line 142)
+
+### Best Practices Established
+
+**For archival/ETL operations**:
+1. Always handle duplicate key errors gracefully
+2. Use error codes to differentiate duplicate from real failures
+3. Make operations idempotent (safe to retry)
+4. Clean up source data even if archive already exists
+5. Log skips for observability
+
+**For database constraints**:
+1. Ensure constraints match between related tables (source vs archive)
+2. Include ALL key fields in unique constraints (don't forget model_name!)
+3. Use `ON DELETE CASCADE` for related data cleanup
+4. Verify constraints with SQL queries before deploying
+
+### Interview Talking Points
+
+1. **Production Debugging**:
+   - "Diagnosed infinite loop by analyzing cron job logs"
+   - "Found 31 articles stuck in both source and archive tables"
+   - "Traced to duplicate key error preventing deletion from source"
+
+2. **Idempotent Design**:
+   - "Changed error handling to detect PostgreSQL error code 23505"
+   - "Function now safely handles duplicate inserts without failing"
+   - "Demonstrates understanding of distributed systems patterns"
+
+3. **Database Expertise**:
+   - "Discovered constraint mismatch using SQL schema inspection"
+   - "Fixed both database schema AND application code"
+   - "Defense in depth: database enforces integrity, code handles edge cases"
+
+4. **Design Trade-Offs**:
+   - "Evaluated 4 different approaches to handling duplicates"
+   - "Chose error code checking for performance and atomicity"
+   - "Willing to depend on PostgreSQL specifics for this use case"
+
+### Lessons Learned
+
+**Technical**:
+- Unique constraints must be identical across related tables
+- PostgreSQL error code `23505` = unique_violation
+- `ON DELETE CASCADE` works as expected for cleanup
+- Idempotent operations prevent infinite loops
+
+**Architectural**:
+- Error handling strategy affects system reliability
+- Database constraints are part of application logic
+- Logs are essential for debugging production cron jobs
+- Manual cleanup sometimes needed before code fixes work
+
+**Process**:
+- Always check constraints when creating archive tables
+- Test archival logic with local database first (use Supabase local dev)
+- Verify both code AND schema when debugging data issues
+- Document production incidents for future reference
+
+### Future Improvements
+
+**Potential Enhancements**:
+- [ ] Add metrics tracking (articles archived, errors, duration)
+- [ ] Add alerting for cron job failures
+- [ ] Consider transaction wrapping for atomicity
+- [ ] Add retry logic for transient failures (separate from duplicates)
+
+**Local Development Setup**:
+- [ ] Install Supabase CLI for local database
+- [ ] Use migrations to track schema changes
+- [ ] Test destructive operations locally first
+- [ ] Never make schema changes directly on production again
+
+### Related Design Decisions
+
+- **Supabase Row Limit Discovery & Fix** (January 20, 2026): Similar debugging approach with SQL queries
+- **Multi-Model AI Integration** (January 13-17, 2026): Why `model_name` field exists in constraints

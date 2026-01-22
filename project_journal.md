@@ -1953,3 +1953,386 @@ Qwen was literally copying the "+1", "+0.5" format into its JSON output, produci
 **Lesson Learned**: LLMs are literal interpreters. If your prompt includes formatted examples like "+1", the model may copy that exact format. Keep numeric examples clean (use `1` not `+1`) or omit them entirely and let the model infer appropriate values from the scale description.
 
 **Interview Talking Point**: "Discovered that prompt formatting directly affects JSON output formatting. Qwen was copying '+0.5' as a string literal from the prompt. Fixed by removing explicit score examples from category descriptions - demonstrates understanding of how LLM prompts influence structured outputs."
+
+---
+
+## January 22, 2026
+
+### What I Worked On Today
+
+**Critical Production Bug - Cron Job Archival Infinite Loop**
+
+Spent the day debugging and fixing a critical issue where the daily cron job was stuck in an infinite loop, preventing new articles from being analyzed. The archival step was repeatedly failing with duplicate key errors, blocking the analysis step from ever running.
+
+### The Problem
+
+**Symptoms**:
+- Cron job logs showed archival step starting but never completing
+- Step 2 (Fetch & Analyze New Articles) never ran
+- Homepage showed articles being fetched but not analyzed
+- 31 articles stuck in BOTH `media` and `archived_media` tables simultaneously
+
+**Initial Investigation**:
+- Cron job runs daily at 14:00 UTC (9am ET)
+- Logs showed: "duplicate key value violates unique constraint 'archived_media_pkey'"
+- Same 50 articles failing on every cron run (infinite loop)
+
+### Root Cause Analysis
+
+Discovered **THREE separate but related issues**:
+
+#### Issue #1: Database Constraint Mismatch
+
+**Problem**: `ai_scores` and `archived_ai_scores` had incompatible unique constraints.
+
+**Details**:
+- `ai_scores` table: UNIQUE constraint on `(media_id, category_id, model_name)` ✓ Correct
+- `archived_ai_scores` table: UNIQUE constraint on `(media_id, category_id)` ❌ Missing `model_name`!
+
+**Impact**: When archiving AI scores, the system tried to insert 4 models × multiple categories, but the constraint only allowed one score per article-category pair. First insert succeeded, subsequent inserts failed with duplicate key errors.
+
+**SQL Investigation**:
+```sql
+-- Discovered the mismatch
+SELECT constraint_name, table_name, column_name
+FROM information_schema.key_column_usage
+WHERE constraint_name LIKE '%ai_scores%'
+```
+
+**Fix**:
+```sql
+-- Drop incorrect constraint
+ALTER TABLE archived_ai_scores
+DROP CONSTRAINT archived_ai_scores_media_id_category_id_key;
+
+-- Add correct constraint (matching ai_scores)
+ALTER TABLE archived_ai_scores
+ADD CONSTRAINT archived_ai_scores_one_model_per_media_category
+UNIQUE (media_id, category_id, model_name);
+```
+
+#### Issue #2: Code Didn't Handle Duplicate Key Errors
+
+**Problem**: When archival tried to INSERT an already-archived article, it threw an exception and stopped processing.
+
+**Code (Before)**:
+```typescript
+const { error: archiveError } = await supabaseAdmin
+  .from('archived_media')
+  .insert(archivedArticle)
+
+if (archiveError) {
+  throw new Error(`Failed to insert into archived_media: ${archiveError.message}`)
+  // ❌ Exception prevents deletion from media table
+  // Next cron run tries same article again → infinite loop
+}
+```
+
+**Impact**: Articles remained in `media` table even though they were already in `archived_media`, causing cron job to try archiving them again on next run.
+
+**Fix**: Check for PostgreSQL error code 23505 (unique_violation) and skip gracefully:
+```typescript
+if (archiveError) {
+  // PostgreSQL error code 23505 = unique_violation
+  if (archiveError.code === '23505') {
+    console.log('[Archive] Article already in archived_media, skipping insert:', article.id)
+    // Continue to deletion step - we still need to remove from media table
+  } else {
+    throw new Error(`Failed to insert into archived_media: ${archiveError.message}`)
+  }
+}
+```
+
+#### Issue #3: Only Archived user_analyzed=false
+
+**Problem**: Code only archived GNews articles, not user submissions.
+
+**Code (Before)**:
+```typescript
+const { data: oldArticles } = await supabaseAdmin
+  .from('media')
+  .select('*')
+  .eq('user_analyzed', false)  // ❌ Only archives GNews
+  .lt('created_at', yesterdayISO)
+```
+
+**User Request**: "We want to archive BOTH user_analyzed=true AND user_analyzed=false articles."
+
+**Fix**:
+```typescript
+const { data: oldArticles } = await supabaseAdmin
+  .from('media')
+  .select('*')
+  .lt('created_at', yesterdayISO)  // ✓ Archives all articles
+```
+
+### Database Cleanup Process
+
+Had to manually clean up the stuck state before code fixes would work:
+
+**Step 1: Identify Stuck Articles**
+```sql
+-- Found 31 articles in both tables
+SELECT COUNT(*)
+FROM media m
+INNER JOIN archived_media am ON m.id = am.id;
+```
+
+**Step 2: Archive AI Scores (with NOT EXISTS to skip duplicates)**
+```sql
+INSERT INTO archived_ai_scores (...)
+SELECT ... FROM ai_scores
+WHERE media_id IN (SELECT id FROM archived_media)
+AND NOT EXISTS (
+  SELECT 1 FROM archived_ai_scores aas
+  WHERE aas.media_id = ai.media_id
+  AND aas.category_id = ai.category_id
+  AND aas.model_name = ai.model_name
+);
+```
+
+**Step 3: Delete AI Scores from Source Table**
+```sql
+DELETE FROM ai_scores
+WHERE media_id IN (SELECT id FROM archived_media);
+```
+
+**Step 4: Delete Articles from Source Table**
+```sql
+DELETE FROM media
+WHERE id IN (SELECT id FROM archived_media);
+```
+
+**Verification**:
+```sql
+-- Should return 0
+SELECT COUNT(*) FROM media m
+INNER JOIN archived_media am ON m.id = am.id;
+-- ✓ Returned 0
+```
+
+### Code Changes Made
+
+**Files Modified**:
+
+1. **`src/lib/archiveArticles.ts`** (4 changes):
+   - Updated JSDoc to reflect archiving ALL articles
+   - Removed `.eq('user_analyzed', false)` filter (line 54)
+   - Added duplicate key error handling for `archived_media` (lines 113-122)
+   - Added duplicate key error handling for `archived_ai_scores` (lines 136-144)
+
+2. **Database Schema**:
+   - Fixed `archived_ai_scores` unique constraint to include `model_name`
+
+### Why This Fix Works
+
+**Idempotent Operation**:
+- Function can safely run on same articles multiple times without errors
+- Detects PostgreSQL error code `23505` (unique_violation) and skips insert
+- Still proceeds to deletion step to clean up stuck state
+
+**Graceful Degradation**:
+- If article already archived → skip insert, delete from source
+- If some AI scores already archived → skip those, insert new ones, delete all from source
+- No more infinite loops
+
+**Archives Everything**:
+- Both GNews (user_analyzed=false) AND user submissions (user_analyzed=true)
+- Respects user's requirement for comprehensive archival
+
+### Testing & Verification
+
+**Pre-Fix State**:
+- media: 492 articles
+- archived_media: 552 articles
+- ai_scores: 1,083 scores
+- archived_ai_scores: 438 scores
+- Stuck articles: 31
+
+**Post-Fix State**:
+- media: 423 articles (69 deleted for testing)
+- archived_media: 552 articles
+- ai_scores: 948 scores
+- archived_ai_scores: 438 scores
+- Stuck articles: 0 ✓
+
+**Manual Deletion for Testing**:
+- Deleted today's articles (Jan 22, 2026) to test cron job fresh
+- Verified CASCADE delete worked (ai_scores auto-deleted)
+- Manually triggered cron job to verify full fix
+
+**Post-Test Verification (After Manual Cron Trigger)**:
+- ✅ **No errors or timeouts** (major improvement from before!)
+- ✅ **Archival step completed**: 50 articles archived successfully
+- ✅ **Fetch & analyze step executed**: 213 new articles fetched, 13 fully analyzed
+- ✅ **No infinite loop**: Step 2 ran as expected (previously never reached)
+- ✅ **All 4 AI models working**: Gemini, Qwen, GPT-OSS, Llama Maverick (13 articles each)
+- ✅ **No duplicate key errors**: Idempotent error handling worked perfectly
+- ✅ **No stuck articles**: 0 articles in both tables simultaneously
+
+**Database State After Test**:
+- media: 443 articles (vs 423 before test)
+- archived_media: 602 articles (vs 552 before = +50 archived ✓)
+- ai_scores: 1,002 scores
+- archived_ai_scores: 540 scores (vs 438 before = +102 archived ✓)
+- Fully analyzed (active): 71 articles
+- Fully analyzed (archived): 32 articles
+- **Total fully analyzed: 103 articles**
+
+**Analysis Rate (as expected)**:
+- 213 articles fetched / 13 analyzed = 6.1% analysis rate
+- Normal due to API rate limits and Vercel timeout constraints
+- All 4 models completed successfully on analyzed articles
+
+### Key Learnings
+
+**Technical**:
+- PostgreSQL unique constraints must match across related tables (ai_scores vs archived_ai_scores)
+- Error code `23505` = unique_violation in PostgreSQL
+- `NULL ≠ FALSE` in SQL - always set explicit defaults
+- Foreign key CASCADE deletes work as expected
+
+**Database Design**:
+- Constraints are critical for data integrity but can cause issues if inconsistent
+- Always check constraints when creating archive/mirror tables
+- Use `ON DELETE CASCADE` appropriately for related data
+
+**Debugging Process**:
+- Systematic investigation: logs → database state → constraints → code
+- SQL queries to verify actual data vs expected data
+- Check both application code AND database schema
+- Round numbers (exactly 1000, exactly 50) often indicate limits or batching
+
+**Production Debugging**:
+- Cron jobs fail silently - good logging is essential
+- Infinite loops happen when error handling prevents state cleanup
+- Manual database cleanup sometimes needed before code fixes work
+
+### Design Decisions
+
+**Why Check Error Code Instead of Pre-Query?**
+
+**Option 1 (Rejected)**: Query first, insert only if doesn't exist
+```typescript
+const exists = await supabase.from('archived_media').select('id').eq('id', article.id)
+if (!exists) {
+  await supabase.from('archived_media').insert(...)
+}
+```
+- **Con**: 2× database calls per article
+- **Con**: Race condition possible (article inserted between check and insert)
+
+**Option 2 (Chosen)**: Try insert, handle duplicate gracefully
+```typescript
+const { error } = await supabase.from('archived_media').insert(...)
+if (error?.code === '23505') {
+  // Already exists, continue
+}
+```
+- **Pro**: 1 database call (faster)
+- **Pro**: Atomic operation (no race condition)
+- **Pro**: Database enforces uniqueness (more reliable)
+
+**Why Archive Both User Types?**
+
+**Original Design**: Only archive GNews articles (user_analyzed=false)
+- **Rationale**: User submissions are "personal" and shouldn't be archived
+- **Problem**: Database fills up with old user submissions
+
+**New Design**: Archive ALL articles older than 1 day
+- **Rationale**: User has dashboard history (cookies) for their articles
+- **Rationale**: Archived data still exists, just not in active table
+- **Rationale**: Consistent lifecycle for all article types
+
+### Interview Talking Points
+
+1. **Root Cause Analysis**:
+   - "Discovered constraint mismatch between ai_scores and archived_ai_scores tables"
+   - "Constraint was missing model_name column, allowing only 1 score per article-category"
+   - "This caused duplicate key errors on 2nd, 3rd, 4th model inserts"
+
+2. **Database Debugging**:
+   - "Used SQL queries to inspect constraints across tables"
+   - "Found 31 articles stuck in both source and archive tables"
+   - "Cleaned up stuck state with careful NOT EXISTS clauses"
+
+3. **Idempotent Design**:
+   - "Changed error handling to detect PostgreSQL error code 23505"
+   - "Function can now safely run multiple times on same data"
+   - "Demonstrates defensive programming - assume errors will happen"
+
+4. **Production Mindset**:
+   - "Fixed constraint at database level AND code level"
+   - "Database enforces integrity, code handles edge cases gracefully"
+   - "Added comprehensive logging for future debugging"
+
+5. **Systematic Approach**:
+   - "Worked through 3 separate issues methodically"
+   - "Fixed database schema first, then code, then tested"
+   - "Verified with SQL queries at each step"
+
+### Files Created/Modified
+
+| File | Action | Changes |
+|------|--------|---------|
+| `src/lib/archiveArticles.ts` | Modified | Removed user_analyzed filter, added duplicate key handling |
+| `project_journal.md` | Updated | Added full debugging session documentation |
+| `design_decisions.md` | Updated | (Will add archival error handling decision) |
+
+### Next Steps
+
+**Immediate**:
+- [x] Fix database constraint
+- [x] Update archival code to handle duplicates
+- [x] Clean up stuck articles manually
+- [x] Test with deleted articles
+- [x] **Manually trigger cron job and verify fix works**
+- [x] **Verify archival completes without errors**
+- [x] **Verify new articles get fetched and analyzed**
+- [ ] Monitor tomorrow's automated cron job (14:00 UTC)
+
+**Future**:
+- [ ] Add alerting for cron job failures
+- [ ] Consider separate archival schedule (e.g., weekly instead of daily)
+- [ ] Add metrics tracking (articles archived per run, errors, duration)
+
+### Important Note for Future
+
+**TODO: Set Up Local Supabase Instance for Development**
+
+Today's debugging involved making changes directly to the production database, which is risky. Going forward, should:
+
+1. **Install Supabase CLI**: `npm install -g supabase`
+2. **Initialize local instance**: `supabase init` and `supabase start`
+3. **Use migrations**: Track schema changes in version control
+4. **Test locally first**: Verify changes work before deploying to production
+
+**Why this matters**:
+- Testing archival logic on production data is dangerous
+- Could have accidentally deleted important data
+- Local instance provides safe sandbox for testing destructive operations
+- Migrations ensure dev/prod schemas stay in sync
+
+**Resources**:
+- Supabase local development: https://supabase.com/docs/guides/cli/local-development
+- Database migrations: https://supabase.com/docs/guides/cli/managing-environments
+
+### Metrics
+
+**Time Spent**: ~4 hours total
+- Investigation: 1.5 hours
+- SQL cleanup: 1 hour
+- Code fixes: 1 hour
+- Testing & documentation: 0.5 hours
+
+**Complexity**: High
+- Multiple interrelated issues
+- Production database cleanup required
+- Foreign key constraints and cascades
+- PostgreSQL error codes and handling
+
+**Value**: Critical
+- Unblocked daily cron job (articles will be analyzed again)
+- Fixed data integrity issues
+- Prevented database from filling up with stuck records
+- Learned valuable debugging patterns for production issues
